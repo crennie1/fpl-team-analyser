@@ -22,6 +22,29 @@ Winner: **FPL ep_pre**. The model did not beat the better baseline.
 
 What this means for the app: FPL's own prediction was more accurate on these gameweeks, so the app uses FPL's own prediction for next-gameweek points. The 3-gameweek numbers are that same prediction, scaled by how many fixtures the player has and how hard they are.
 
+## 3-gameweek check
+
+Transfer suggestions use points over the next 3 gameweeks, so this table scores
+those numbers too. Each start gameweek below has an FPL prediction and two more
+gameweeks after it. Every method predicts the player's points summed over the
+start gameweek and the next two, using only gameweeks before the start:
+
+- SQL model: the model's expected points for the 3 gameweeks added up.
+- Last-5 average × fixtures: the last-5 average times his number of fixtures.
+- FPL ep_pre, scaled: FPL's prediction for the start gameweek, scaled by how many
+  fixtures he has over the 3 gameweeks and how hard they are (what the app does).
+
+Start gameweeks (5): 6, 8-9, 24, 29. Rows scored: 2093 per method.
+This sample is small, so read it as a sanity check, not a verdict.
+
+| Method | MAE | Rows |
+|---|---|---|
+| SQL model (v_xp), summed over 3 GWs | 4.247 | 2093 |
+| Last-5 average × fixtures | 4.331 | 2093 |
+| FPL ep_pre, scaled over 3 GWs (R20) | 3.630 | 2093 |
+
+The forecast source is decided by the one-gameweek table above, not by this one.
+
 ## Caveats
 
 - **In-sample caveat:** the fixture-difficulty (FDR) multipliers in the model were fit
