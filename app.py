@@ -42,8 +42,11 @@ def db_path() -> Path:
 # ---------------------------------------------------------------- data access
 
 @st.cache_resource(show_spinner="Loading player data…")
-def _master_bytes(path: str) -> bytes:
-    """Prepared database (views applied, forecast cache refreshed) as immutable bytes."""
+def _master_bytes(path: str, mtime: float) -> bytes:
+    """Prepared database (views applied, forecast cache refreshed) as immutable bytes.
+
+    `mtime` is only a cache key: a refreshed data/fpl.db gets a new entry.
+    """
     master = db.memory_copy(path)
     try:
         return master.serialize()
@@ -54,7 +57,8 @@ def _master_bytes(path: str) -> bytes:
 def open_session_db() -> sqlite3.Connection:
     """A private writable in-memory copy for this script run."""
     conn = sqlite3.connect(":memory:", check_same_thread=False)
-    conn.deserialize(_master_bytes(str(db_path())))
+    path = str(db_path())
+    conn.deserialize(_master_bytes(path, os.path.getmtime(path)))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn

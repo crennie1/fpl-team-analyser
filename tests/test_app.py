@@ -173,3 +173,15 @@ def test_app_bench_suggestion_names_the_starter_it_replaces(env):
     # P9014 is the bench MID; the starting MIDs tie on xp, so the first (P9006) makes way
     assert any(l.startswith("2. P9014 → ") and "(starts instead of P9006)" in l for l in lines)
     assert not any("starts instead" in l for l in lines if l.startswith("1. P9006"))
+
+
+def test_app_sees_refreshed_database_file(env):
+    import os
+    assert not run().warning
+    old = (datetime.now(timezone.utc) - timedelta(days=3)).isoformat(timespec="seconds")
+    env.execute("UPDATE meta SET value = ? WHERE key = 'last_collected'", (old,))
+    env.commit()
+    path = env.execute("PRAGMA database_list").fetchone()["file"]
+    later = os.path.getmtime(path) + 60
+    os.utime(path, (later, later))      # a new data/fpl.db; the cache is not cleared
+    assert "Player data may be out of date" in run().warning[0].value
