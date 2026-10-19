@@ -10,6 +10,8 @@ class FakeResponse:
         self._body = body
 
     def json(self):
+        if isinstance(self._body, Exception):
+            raise self._body
         return self._body
 
 
@@ -95,3 +97,11 @@ def test_convenience_paths():
         "entry/7/history/", "entry/7/event/3/picks/", "entry/7/transfers/",
         "element-summary/9/",
     ]
+
+
+def test_non_json_200_raises_api_error():
+    client, session, _ = make([FakeResponse(200, ValueError("Expecting value"))])
+    with pytest.raises(FplApiError) as exc:
+        client.get("x/")
+    assert exc.value.status == 200
+    assert len(session.calls) == 1

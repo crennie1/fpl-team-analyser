@@ -41,7 +41,11 @@ class FplClient:
                 raise FplApiError(f"Network error calling {url}: {exc}", status=None) from exc
             status = resp.status_code
             if status == 200:
-                return resp.json()
+                try:
+                    return resp.json()
+                except ValueError as exc:
+                    raise FplApiError(f"FPL API returned a non-JSON body for {url}",
+                                      status=200) from exc
             retryable = status == 429 or status >= 500
             if not retryable or attempt == MAX_RETRIES:
                 raise FplApiError(f"FPL API returned {status} for {url}", status=status)
