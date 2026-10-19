@@ -1,0 +1,7 @@
+name,position,team,xP,element,fixture,minutes,opponent_team,total_points,was_home,GW
+Reinildo Mandava,DEF,Sunderland,0.5,541,5,90,19,6,True,1
+Lucas Tolentino Coelho de Lima,MID,West Ham,2.6,612,5,90,17,2,False,1
+Thierno Barry,FWD,Everton,2.5,310,10,4,11,1,False,1
+Matz Sels,GK,Nott'm Forest,3.1,502,4,90,5,2,True,1
+Adam Armstrong,FWD,Wolves,0.0,817,257,90,16,2,False,26
+Adam Armstrong,FWD,Wolves,0.0,817,310,90,1,2,True,26
