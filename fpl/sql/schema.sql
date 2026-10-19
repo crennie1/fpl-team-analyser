@@ -60,3 +60,8 @@ CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,
     value TEXT
 );
+
+-- Speeds up per-player lookups used by the forecast views.
+CREATE INDEX IF NOT EXISTS idx_player_gw_player ON player_gw (season, player_id, gw);
+CREATE INDEX IF NOT EXISTS idx_fixture_gw ON fixture (season, gw);
+CREATE INDEX IF NOT EXISTS idx_snapshot_player ON player_snapshot (season, player_id, gw);
