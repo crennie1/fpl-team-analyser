@@ -63,3 +63,14 @@ def test_backtest_excludes_null_ep_gameweek_for_all_methods(db_with_sample):
     r = backtest.run(db_with_sample, "2026-27", from_gw=6)
     assert {r[m]["n"] for m in backtest.METHODS} == {3}
     assert r["covered_gws"] == [7]
+
+
+def test_report_fpl_ep_wording_matches_ruling_r20(db_with_sample, tmp_path):
+    _sample_rows(db_with_sample, True)
+    r = backtest.run(db_with_sample, "2026-27", from_gw=6)
+    assert r["winner"] == "fpl_ep"
+    p = tmp_path / "b.md"
+    backtest.write_report(r, p)
+    text = p.read_text()
+    assert "scaled by how many fixtures" in text
+    assert "our model for the 3-gameweek" not in text

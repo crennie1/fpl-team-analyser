@@ -20,7 +20,7 @@ Gameweeks with no FPL prediction (between GW6 and GW38): 7, 10-23, 25-28, 30-37.
 
 Winner: **FPL ep_pre**. The model did not beat the better baseline.
 
-What this means for the app: FPL's own prediction was more accurate on these gameweeks, so the app uses FPL's own prediction for next-gameweek points and our model for the 3-gameweek suggestions.
+What this means for the app: FPL's own prediction was more accurate on these gameweeks, so the app uses FPL's own prediction for next-gameweek points. The 3-gameweek numbers are that same prediction, scaled by how many fixtures the player has and how hard they are.
 
 ## Caveats
 

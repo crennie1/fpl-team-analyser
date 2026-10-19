@@ -24,6 +24,8 @@
 -- gameweek his team blanks in.
 -- =====================================================================
 
+-- Leftover view from an earlier version of this file; no longer defined.
+DROP VIEW IF EXISTS v_player_gw_agg;
 DROP VIEW IF EXISTS v_xp_next;
 DROP VIEW IF EXISTS v_xp;
 DROP VIEW IF EXISTS v_xp_fixture;

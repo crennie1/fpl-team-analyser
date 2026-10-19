@@ -100,8 +100,9 @@ def write_report(result: dict, path: Path) -> None:
     w = result["winner"]
     if w == "fpl_ep":
         meaning = ("FPL's own prediction was more accurate on these gameweeks, so the app "
-                   "uses FPL's own prediction for next-gameweek points and our model "
-                   "for the 3-gameweek suggestions.")
+                   "uses FPL's own prediction for next-gameweek points. The 3-gameweek "
+                   "numbers are that same prediction, scaled by how many fixtures "
+                   "the player has and how hard they are.")
     elif w == "model":
         meaning = ("The app will use our SQL model for expected points, because it "
                    "predicted better than both baselines.")
