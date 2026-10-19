@@ -113,3 +113,46 @@ def test_leaves_original_squad_stored(db_with_squads, add_squad):
         "SELECT player_id FROM squad_pick WHERE squad_id = 'user'")}
     assert stored == set(pids)
 
+
+
+def stored_ids(conn):
+    return {r[0] for r in conn.execute("SELECT player_id FROM squad_pick WHERE squad_id = 'user'")}
+
+
+def test_invalid_swap_skipped_and_squad_restored(db_with_squads, add_squad, monkeypatch):
+    import fpl.suggest as mod
+    from fpl.squad import SquadError
+    squad, pids = base(db_with_squads, add_squad)
+    set_xp3(db_with_squads, pids[5], 0.0)
+    set_xp3(db_with_squads, pids[6], 1.0)
+    add_player(db_with_squads, 7001, "MID", 300, 20.0)
+    add_player(db_with_squads, 7002, "MID", 301, 19.0)
+    real = mod.swap
+
+    def flaky(sq, out_id, in_id, conn):
+        if out_id == pids[5]:
+            raise SquadError("bad")
+        return real(sq, out_id, in_id, conn)
+    monkeypatch.setattr(mod, "swap", flaky)
+    s = suggest(db_with_squads, squad, k=2)
+    assert pids[5] not in [x.out_id for x in s] and s[0].out_id == pids[6]
+    assert len(s) == 2
+    assert stored_ids(db_with_squads) == set(pids)
+
+
+def test_analyse_error_propagates_and_squad_restored(db_with_squads, add_squad, monkeypatch):
+    import fpl.suggest as mod
+    squad, pids = base(db_with_squads, add_squad)
+    set_xp3(db_with_squads, pids[5], 0.0)
+    add_player(db_with_squads, 7001, "MID", 300, 20.0)
+    real, calls = mod.analyse_squad, []
+
+    def boom(conn, sq):
+        calls.append(1)
+        if len(calls) == 2:
+            raise RuntimeError("boom")
+        return real(conn, sq)
+    monkeypatch.setattr(mod, "analyse_squad", boom)
+    with pytest.raises(RuntimeError):
+        suggest(db_with_squads, squad)
+    assert stored_ids(db_with_squads) == set(pids)

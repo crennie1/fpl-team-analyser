@@ -2,7 +2,7 @@
 from dataclasses import dataclass
 
 from fpl.analyse import analyse_squad
-from fpl.squad import MAX_PER_CLUB, Squad, swap
+from fpl.squad import MAX_PER_CLUB, Squad, SquadError, swap
 
 MIN_NET_GAIN = 0.5
 HIT_COST = 4
@@ -77,21 +77,24 @@ def suggest(conn, squad: Squad, k: int = 2) -> list[Suggestion]:
                 found.append((gain3 - hit, pick.player_id, cand["player_id"], cand["web_name"],
                               out["web_name"], out["position"], gain3))
     found.sort(key=lambda f: (-f[0], f[1], f[2]))
-    top, used_out, used_in = [], set(), set()
-    for f in found:
-        if f[1] not in used_out and f[2] not in used_in and len(top) < k:
-            top.append(f)
-            used_out.add(f[1])
-            used_in.add(f[2])
-    if not top:
-        return []
-
-    before = analyse_squad(conn, squad).grades
-    result = []
-    for net, out_id, in_id, in_name, out_name, position, gain3 in top:
-        area = GRADE_AREA[position]
-        after = analyse_squad(conn, swap(squad, out_id, in_id, conn)).grades
-        result.append(Suggestion(out_id, in_id, out_name, in_name, gain3, hit, net,
-                                 (area, before[area], after[area])))
-    analyse_squad(conn, squad)   # put the user's own squad back
+    result, used_out, used_in = [], set(), set()
+    try:
+        before = analyse_squad(conn, squad).grades
+        for net, out_id, in_id, in_name, out_name, position, gain3 in found:
+            if len(result) >= k:
+                break
+            if out_id in used_out or in_id in used_in:
+                continue
+            try:
+                swapped = swap(squad, out_id, in_id, conn)
+            except SquadError:
+                continue   # this swap is not valid; try the next candidate
+            after = analyse_squad(conn, swapped).grades
+            area = GRADE_AREA[position]
+            result.append(Suggestion(out_id, in_id, out_name, in_name, gain3, hit, net,
+                                     (area, before[area], after[area])))
+            used_out.add(out_id)
+            used_in.add(in_id)
+    finally:
+        analyse_squad(conn, squad)   # always put the user's own squad back
     return result
