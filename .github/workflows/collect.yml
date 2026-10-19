@@ -39,6 +39,7 @@ jobs:
 
       # Tuesdays only (date +%u: 1=Mon .. 7=Sun); a manual run always refreshes.
       - name: Refresh reference sample
+        continue-on-error: true
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "$(date -u +%u)" = "2" ]; then
             python -m fpl.reference --db data/fpl.db --n 500
@@ -47,6 +48,7 @@ jobs:
           fi
 
       - name: Re-run backtest on new gameweek
+        continue-on-error: true
         if: steps.collect.outputs.new_gw == 'true'
         run: python -m fpl.backtest --db data/fpl.db
 

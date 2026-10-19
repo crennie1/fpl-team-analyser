@@ -6,6 +6,9 @@ from fpl import db
 from fpl.api import FplApiError, FplClient
 
 
+MAX_API_ERRORS = 20
+
+
 def _fetch_picks(client, entry_id, gw):
     """Return the pick list for one entry, or None if the team or its picks are missing."""
     try:
@@ -25,13 +28,21 @@ def sample(conn, client, season, gw, n=500, seed=None):
     squads = []
     seen = set()
     attempts = 0
-    while len(squads) < n and attempts < 3 * n:
+    errors = 0
+    while len(squads) < n and attempts < 3 * n and len(seen) < total:
         entry_id = rng.randint(1, total)
         if entry_id in seen:
             continue
         seen.add(entry_id)
         attempts += 1
-        picks = _fetch_picks(client, entry_id, gw)
+        try:
+            picks = _fetch_picks(client, entry_id, gw)
+        except FplApiError:
+            # Skip a flaky entry, but fail loudly if the API is really down.
+            errors += 1
+            if errors > MAX_API_ERRORS:
+                raise
+            continue
         if picks:
             squads.append((entry_id, picks))
 

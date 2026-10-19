@@ -56,3 +56,28 @@ def test_sample_replaces_previous_and_keeps_user_squad(tmp_db):
     assert _count(tmp_db, "SELECT COUNT(DISTINCT gw) FROM reference_squad") == 1
     assert _count(tmp_db, "SELECT COUNT(*) FROM squad_pick WHERE squad_id LIKE 'ref:%'") == 60
     assert _count(tmp_db, "SELECT COUNT(*) FROM squad_pick WHERE squad_id = 'user'") == 1
+
+
+class FlakyClient(PicksClient):
+    def __init__(self, bad_ids, **kw):
+        super().__init__(**kw)
+        self.bad = bad_ids
+
+    def entry(self, team_id):
+        if team_id in self.bad:
+            raise FplApiError("boom", status=500)
+        return super().entry(team_id)
+
+
+def test_sample_skips_server_errors_then_caps(tmp_db):
+    import pytest
+    few = FlakyClient({1, 2, 3}, total=50)
+    assert reference.sample(tmp_db, few, "2026-27", 7, n=10, seed=1) == 10
+    down = FlakyClient(set(range(1, 1001)), total=1000)
+    with pytest.raises(FplApiError):
+        reference.sample(tmp_db, down, "2026-27", 7, n=10, seed=1)
+
+
+def test_sample_ends_when_pool_smaller_than_attempts(tmp_db):
+    client = PicksClient(missing=lambda eid: True, total=5)
+    assert reference.sample(tmp_db, client, "2026-27", 7, n=10, seed=1) == 0
