@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS player_snapshot (
     ep_next REAL,
     now_cost INTEGER,            -- tenths of GBP m, as FPL does
     selected_by_percent REAL,
+    news TEXT,                   -- FPL's injury/availability text, NULL when none
     PRIMARY KEY (season, gw, player_id)
 );
 

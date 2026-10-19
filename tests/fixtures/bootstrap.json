@@ -108,7 +108,8 @@
    "chance_of_playing_next_round": null,
    "ep_next": "6.0",
    "now_cost": 61,
-   "selected_by_percent": "44.1"
+   "selected_by_percent": "44.1",
+   "news": ""
   },
   {
    "id": 8,
@@ -119,7 +120,8 @@
    "chance_of_playing_next_round": null,
    "ep_next": "7.5",
    "now_cost": 60,
-   "selected_by_percent": "53.6"
+   "selected_by_percent": "53.6",
+   "news": "Knee injury - 25% chance of playing"
   },
   {
    "id": 12,
@@ -130,7 +132,8 @@
    "chance_of_playing_next_round": null,
    "ep_next": "2.5",
    "now_cost": 96,
-   "selected_by_percent": "16.8"
+   "selected_by_percent": "16.8",
+   "news": ""
   },
   {
    "id": 13,
@@ -141,7 +144,8 @@
    "chance_of_playing_next_round": 100,
    "ep_next": "8.0",
    "now_cost": 73,
-   "selected_by_percent": "11.0"
+   "selected_by_percent": "11.0",
+   "news": ""
   },
   {
    "id": 26,
@@ -152,7 +156,8 @@
    "chance_of_playing_next_round": 100,
    "ep_next": "2.0",
    "now_cost": 75,
-   "selected_by_percent": "6.3"
+   "selected_by_percent": "6.3",
+   "news": ""
   },
   {
    "id": 194,
@@ -163,7 +168,8 @@
    "chance_of_playing_next_round": null,
    "ep_next": "5.0",
    "now_cost": 50,
-   "selected_by_percent": "0.9"
+   "selected_by_percent": "0.9",
+   "news": ""
   }
  ]
 }

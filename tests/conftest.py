@@ -134,3 +134,66 @@ def db_with_sample(tmp_db):
     conn.commit()
     db.apply_views(conn)
     return conn
+
+
+# Slot layout of a 15-man squad: slots 1-11 start (1 GK, 4 DEF, 4 MID, 2 FWD).
+SLOT_POSITIONS = ["GK"] + ["DEF"] * 4 + ["MID"] * 4 + ["FWD"] * 2 + ["GK", "DEF", "MID", "FWD"]
+
+
+def _add_squad(conn, squad_id, first_pid, xp=4.0, team=1, captain_slot=9, flags=None):
+    """Add 15 new players (ids first_pid..) and a squad of them; return the player ids.
+
+    xp is one number or a list of 15 (by slot); it becomes FPL's ep_next, which is
+    xp_next while meta.forecast_source is 'fpl_ep'. flags = {slot: (status, chance_next)}.
+    Each player has 90 minutes in gws 1-5, so start_prob is 1.
+    """
+    xps = xp if isinstance(xp, list) else [xp] * 15
+    flags = flags or {}
+    pids = []
+    for slot in range(1, 16):
+        pid = first_pid + slot
+        pids.append(pid)
+        status, chance = flags.get(slot, ("a", None))
+        _insert(conn, "player", [{"season": "2026-27", "player_id": pid, "web_name": f"P{pid}",
+                                  "team_id": team, "position": SLOT_POSITIONS[slot - 1]}])
+        _insert(conn, "player_snapshot", [{
+            "season": "2026-27", "gw": 6, "player_id": pid, "collected_at": "2026-10-19T12:00:00",
+            "status": status, "chance_next": chance, "ep_next": xps[slot - 1], "now_cost": 50,
+            "selected_by_percent": 1.0, "news": None if status == "a" else f"News {pid}"}])
+        _insert(conn, "player_gw", [
+            {"season": "2026-27", "gw": gw, "player_id": pid, "fixture_id": 1, "minutes": 90,
+             "total_points": 2, "was_home": 1, "opponent_team": 4, "fdr": 3, "ep_pre": None}
+            for gw in range(1, 6)])
+        _insert(conn, "squad_pick", [{"squad_id": squad_id, "player_id": pid, "slot": slot,
+                                      "is_starter": int(slot <= 11),
+                                      "is_captain": int(slot == captain_slot)}])
+    conn.commit()
+    return pids
+
+
+@pytest.fixture
+def add_squad():
+    return _add_squad
+
+
+@pytest.fixture
+def db_with_squads(db_with_sample):
+    """db_with_sample plus 5 reference squads (ref:1..5, every player on xp 3..7)
+    and fixtures to gw 10. Team 1 has FDR 3, team 5 FDR 2 (easy), team 6 FDR 5 (hard).
+    The test adds the 'user' squad with add_squad(conn, 'user', 9000, ...)."""
+    conn = db_with_sample
+    _insert(conn, "meta", [{"key": "forecast_source", "value": "fpl_ep"}])
+    _insert(conn, "team", [{"season": "2026-27", "team_id": t, "name": f"Team {t}",
+                            "short_name": f"T{t}"} for t in (1, 5, 6)])
+    fixtures = [{"season": "2026-27", "fixture_id": 100 + i, "gw": gw, "team_h": team, "team_a": 4,
+                 "team_h_difficulty": fdr, "team_a_difficulty": 3, "finished": 0}
+                for i, (team, fdr, gw) in enumerate(
+                    [(t, f, g) for t, f in ((1, 3), (5, 2), (6, 5)) for g in range(6, 11)])]
+    _insert(conn, "fixture", fixtures)
+    for k in range(1, 6):
+        _add_squad(conn, f"ref:{k}", 1000 * k, xp=2.0 + k)
+        _insert(conn, "reference_squad", [{"season": "2026-27", "gw": 5,
+                                           "squad_id": f"ref:{k}", "entry_id": k}])
+    conn.commit()
+    db.apply_views(conn)
+    return conn

@@ -52,7 +52,7 @@ def test_snapshot_ep_copied_to_player_gw_ep_pre(tmp_db, fake_client):
     # a snapshot taken before gw1 is copied onto that gameweek's rows
     tmp_db.execute("delete from player_gw")
     tmp_db.execute(
-        "insert into player_snapshot values ('2026-27',1,?, 'x','a',100,7.5,100,1.0)", (snap[0]["player_id"],))
+        "insert into player_snapshot (season, gw, player_id, collected_at, status, chance_next, ep_next, now_cost, selected_by_percent) values ('2026-27',1,?, 'x','a',100,7.5,100,1.0)", (snap[0]["player_id"],))
     collect.run(tmp_db, fake_client, "2026-27")
     row = tmp_db.execute(
         "select ep_pre from player_gw where player_id = ?", (snap[0]["player_id"],)).fetchone()
@@ -93,3 +93,17 @@ def test_collect_double_gw_two_rows(tmp_db, fake_client):
     assert first["fixture_id"] == 1 and first["minutes"] == 90 and first["total_points"] == 6
     assert second["fixture_id"] == 900 and second["minutes"] == 30 and second["total_points"] == 7
     assert second["was_home"] == 0 and second["fdr"] == 2 and second["opponent_team"] == other
+
+
+def test_snapshot_stores_news_text(tmp_db, fake_client):
+    collect.run(tmp_db, fake_client, "2026-27")
+    rows = dict(tmp_db.execute("select player_id, news from player_snapshot").fetchall())
+    assert rows[8] == "Knee injury - 25% chance of playing"
+    assert rows[1] is None  # empty news is stored as NULL
+
+
+def test_migrate_adds_news_to_old_database(tmp_path):
+    conn = db.connect(tmp_path / "old.db")
+    conn.execute("CREATE TABLE player_snapshot (season TEXT, gw INTEGER, player_id INTEGER)")
+    db.apply_sql(conn, "schema.sql")
+    assert "news" in {r[1] for r in conn.execute("PRAGMA table_info(player_snapshot)")}

@@ -44,11 +44,13 @@ def _snapshot(conn, season, boot, next_gw, collected_at):
         return
     for e in boot["elements"]:
         conn.execute(
-            "INSERT OR REPLACE INTO player_snapshot VALUES (?,?,?,?,?,?,?,?,?)",
+            "INSERT OR REPLACE INTO player_snapshot (season, gw, player_id, collected_at, "
+            "status, chance_next, ep_next, now_cost, selected_by_percent, news) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
             (season, next_gw, e["id"], collected_at, e["status"],
              e["chance_of_playing_next_round"],
              None if e["ep_next"] is None else float(e["ep_next"]),
-             e["now_cost"], float(e["selected_by_percent"])),
+             e["now_cost"], float(e["selected_by_percent"]), e.get("news") or None),
         )
 
 

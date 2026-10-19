@@ -17,13 +17,13 @@ def conn(tmp_db):
     c.execute("INSERT INTO meta VALUES ('current_season', ?)", (SEASON,))
     for i, pos in enumerate(POS, start=1):
         c.execute("INSERT INTO player VALUES (?,?,?,?,?)", (SEASON, i, f"P{i}", (i % 8) + 1, pos))
-        c.execute("INSERT INTO player_snapshot VALUES (?,?,?,?,?,?,?,?,?)",
+        c.execute("INSERT INTO player_snapshot (season, gw, player_id, collected_at, status, chance_next, ep_next, now_cost, selected_by_percent) VALUES (?,?,?,?,?,?,?,?,?)",
                   (SEASON, 9, i, "2026-10-19T12:00:00", "a", None, 1.0, 50, 5.0))
     # extra candidates: 20 GK, 21 DEF (team 1), 22 MID cheap, 23 MID pricey
     for pid, pos, team, cost in [(20, "GK", 9, 40), (21, "DEF", 1, 50), (22, "MID", 9, 50),
                                  (23, "MID", 9, 150)]:
         c.execute("INSERT INTO player VALUES (?,?,?,?,?)", (SEASON, pid, f"P{pid}", team, pos))
-        c.execute("INSERT INTO player_snapshot VALUES (?,?,?,?,?,?,?,?,?)",
+        c.execute("INSERT INTO player_snapshot (season, gw, player_id, collected_at, status, chance_next, ep_next, now_cost, selected_by_percent) VALUES (?,?,?,?,?,?,?,?,?)",
                   (SEASON, 9, pid, "2026-10-19T12:00:00", "a", None, 1.0, cost, 5.0))
     c.commit()
     db.apply_views(c)
@@ -145,7 +145,7 @@ def test_selling_price_uses_latest_buy_and_ignores_future_transfers(conn):
 
 
 def test_selling_price_kept_player_uses_first_gw_price(conn):
-    conn.execute("INSERT INTO player_snapshot VALUES (?,?,?,?,?,?,?,?,?)",
+    conn.execute("INSERT INTO player_snapshot (season, gw, player_id, collected_at, status, chance_next, ep_next, now_cost, selected_by_percent) VALUES (?,?,?,?,?,?,?,?,?)",
                  (SEASON, 1, 3, "2026-08-10T12:00:00", "a", None, 1.0, 50, 5.0))
     conn.execute("UPDATE player_snapshot SET now_cost = 53 WHERE player_id = 3 AND gw = 9")
     conn.commit()

@@ -13,10 +13,19 @@ def connect(path):
     return conn
 
 
+def _migrate(conn):
+    """Add columns that older databases lack (CREATE TABLE IF NOT EXISTS keeps old tables)."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(player_snapshot)")}
+    if cols and "news" not in cols:
+        conn.execute("ALTER TABLE player_snapshot ADD COLUMN news TEXT")
+
+
 def apply_sql(conn, *files):
     """Run fpl/sql/<file> for each name, in order."""
     for name in files:
         conn.executescript((SQL_DIR / name).read_text())
+        if name == "schema.sql":
+            _migrate(conn)
     conn.commit()
 
 
