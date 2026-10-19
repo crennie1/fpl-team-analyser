@@ -62,6 +62,10 @@ def env(db_with_squads, add_squad, monkeypatch):
         conn.execute("UPDATE player SET team_id = ? WHERE player_id = ?",
                      ((slot % 7) + 1, USER + slot))
         conn.execute("UPDATE player SET team_id = 8 WHERE player_id = ?", (POOL + slot,))
+    # swap targets need fixtures: with no fixture in next_gw the forecast falls back to the model (R20)
+    conn.executemany("INSERT INTO fixture (season, fixture_id, gw, team_h, team_a, team_h_difficulty, "
+                     "team_a_difficulty, finished) VALUES ('2026-27', ?, ?, 8, 4, 3, 3, 0)",
+                     [(200 + gw, gw) for gw in range(6, 11)])
     conn.execute("INSERT OR REPLACE INTO meta VALUES ('last_collected', ?)",
                  (datetime.now(timezone.utc).isoformat(timespec="seconds"),))
     conn.commit()

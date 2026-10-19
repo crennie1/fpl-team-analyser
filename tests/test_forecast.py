@@ -76,7 +76,7 @@ def test_xp_next_respects_forecast_source(db_with_sample):
     ep = conn.execute("SELECT * FROM v_xp_next WHERE player_id=1").fetchone()
     assert ep["xp_source"] == "fpl_ep"
     assert ep["xp_next"] == pytest.approx(5.5)                # snapshot ep_next
-    assert ep["xp_next3"] == pytest.approx(12.0)              # always the model
+    assert ep["xp_next3"] == pytest.approx(16.5)              # 5.5 x 3 fixtures at mult 1 (R20)
     # player with no snapshot falls back to the model
     e = conn.execute("SELECT * FROM v_xp_next WHERE player_id=5").fetchone()
     assert e["xp_source"] == "model"
@@ -105,3 +105,66 @@ def test_chance_next_scales_only_next_gw(db_with_sample):
     # C: 2 pts/90, start 1.0, chance_next 25. Fixtures in gw 6 and gw 8 (FDR 3, mult 1).
     assert xp(db_with_sample, 3, 6) == pytest.approx(0.25 * 2.0)   # next_gw: scaled
     assert xp(db_with_sample, 3, 8) == pytest.approx(2.0)          # next_gw + 2: unscaled
+
+
+# --- R20: with forecast_source = 'fpl_ep', xp_next3 is ep_next scaled by fixtures ---
+# Player 1 (MID, team 1, ep_next 5.5) plays at home in gws 6, 7, 8. MID multipliers:
+# FDR 2 -> 1.5, FDR 3 -> 1.0, FDR 4 -> 0.5.
+
+def _use_ep(conn):
+    conn.execute("INSERT INTO meta (key, value) VALUES ('forecast_source', 'fpl_ep')")
+
+
+def _team1_fixture(conn, gw):
+    return conn.execute("SELECT fixture_id FROM fixture WHERE season='2026-27' AND gw=? "
+                        "AND team_h=1", (gw,)).fetchone()["fixture_id"]
+
+
+def _next(conn, pid=1):
+    return conn.execute("SELECT * FROM v_xp_next WHERE player_id=?", (pid,)).fetchone()
+
+
+def test_xp_next3_scales_ep_by_fixtures(db_with_sample):
+    conn = db_with_sample
+    _use_ep(conn)
+    conn.execute("UPDATE fixture SET team_h_difficulty=2 WHERE fixture_id=?", (_team1_fixture(conn, 7),))
+    conn.execute("DELETE FROM fixture WHERE fixture_id=?", (_team1_fixture(conn, 8),))   # blank gw 8
+    r = _next(conn)
+    assert r["xp_source"] == "fpl_ep"
+    assert r["xp_next"] == pytest.approx(5.5)
+    assert r["xp_next3"] == pytest.approx(5.5 * (1.0 + 1.5 + 0.0) / 1.0)
+
+
+def test_xp_next3_double_gw(db_with_sample):
+    conn = db_with_sample
+    _use_ep(conn)
+    conn.execute("INSERT INTO fixture (season, fixture_id, gw, team_h, team_a, team_h_difficulty, "
+                 "team_a_difficulty, finished) VALUES ('2026-27', 900, 6, 1, 4, 4, 3, 0)")
+    r = _next(conn)
+    # gw 6: 1.0 + 0.5 (two fixtures), gw 7: 1.0, gw 8: 1.0
+    assert r["xp_next3"] == pytest.approx(5.5 * 3.5 / 1.5)
+    assert r["xp_next"] == pytest.approx(5.5)
+
+
+def test_xp_next3_falls_back_without_next_fixture(db_with_sample):
+    conn = db_with_sample
+    model = _next(conn)["xp_next3"]
+    _use_ep(conn)
+    conn.execute("DELETE FROM fixture WHERE fixture_id=?", (_team1_fixture(conn, 6),))
+    r = _next(conn)
+    assert r["xp_source"] == "model"
+    assert r["xp_next"] == pytest.approx(0.0)
+    assert r["xp_next3"] == pytest.approx(8.0)       # model: gws 7 and 8 only, 4.0 each
+    assert model == pytest.approx(12.0)
+
+
+def test_xp_next3_model_source_unchanged(db_with_sample):
+    conn = db_with_sample
+    conn.execute("UPDATE fixture SET team_h_difficulty=2 WHERE fixture_id=?", (_team1_fixture(conn, 7),))
+    r = _next(conn)
+    assert r["xp_source"] == "model"
+    assert r["xp_next3"] == pytest.approx(4.0 * (1.0 + 1.5 + 1.0))
+    # and the view still equals the v_xp sum
+    s = conn.execute("SELECT SUM(xp_model) AS s FROM v_xp WHERE season='2026-27' AND player_id=1 "
+                     "AND as_of_gw=6 AND gw BETWEEN 6 AND 8").fetchone()["s"]
+    assert r["xp_next3"] == pytest.approx(s)

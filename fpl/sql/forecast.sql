@@ -190,7 +190,9 @@ SELECT fm.season, fm.player_id, fm.as_of_gw, tg.as_of_gw AS gw, tf.fixture_id,
                           * CASE WHEN tg.as_of_gw = fm.as_of_gw   -- chance_next: upcoming GW only (R13)
                                  THEN fm.chance_factor ELSE 1.0 END
                           * fm.pts_per_90 * COALESCE(m.mult, 1.0), 0.0)
-       END AS xp
+       END AS xp,
+       -- the fixture's FDR multiplier alone (0 for a blank), for scaling FPL's ep in v_xp_next
+       CASE WHEN tf.fixture_id IS NULL THEN 0.0 ELSE COALESCE(m.mult, 1.0) END AS mult
 FROM v_player_form AS fm
 JOIN player AS pl ON pl.season = fm.season AND pl.player_id = fm.player_id
 JOIN v_as_of_grid AS tg                       -- the target gameweeks
@@ -210,7 +212,23 @@ GROUP BY season, player_id, gw, as_of_gw;
 
 
 -- What the app shows: current season, upcoming gameweek.
--- xp_next uses FPL's own ep_next only when meta.forecast_source = 'fpl_ep'.
+--
+-- In plain English: when meta.forecast_source = 'fpl_ep', FPL's own ep_next is
+-- the number for the coming gameweek, and the 3-gameweek number is built from
+-- that same number so the two never disagree:
+--     xp_next3 = ep_next x (sum of FDR multipliers over his fixtures in the next 3 gameweeks)
+--                        / (sum of FDR multipliers over his fixtures in next_gw)
+-- i.e. FPL's one-week view, scaled up by how many and how hard the next three
+-- weeks of fixtures are (a double gameweek counts twice, a blank counts zero).
+-- If he has no fixture in next_gw (divide by zero) or ep_next is NULL, we fall
+-- back to the model. When forecast_source = 'model', everything is the model.
+--
+-- xp_source values:
+--   'fpl_ep'         xp_next and xp_next3 both come from FPL's ep_next
+--                    (xp_next3 is ep_next scaled by the fixture multipliers)
+--   'model'          xp_next and xp_next3 both come from the model
+-- The two columns always share one source.
+--
 -- The season / next_gw filters are written as scalar subqueries on the views
 -- below (not as joins to a CTE) so SQLite can push them down and only forecast
 -- the one gameweek that is needed, instead of every gameweek of every season.
@@ -219,7 +237,10 @@ WITH next3 AS (      -- sum of the model over next_gw .. next_gw + 2
     SELECT x.player_id,
            SUM(CASE WHEN x.gw = (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'next_gw')
                     THEN x.xp END) AS xp_model_next,
-           SUM(x.xp)               AS xp_next3
+           SUM(x.xp)               AS xp_model_next3,
+           SUM(CASE WHEN x.gw = (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'next_gw')
+                    THEN x.mult END) AS mult_next,
+           SUM(x.mult)             AS mult_next3
     FROM v_xp_fixture AS x      -- same totals as v_xp, but SQLite can push the filters into it
     WHERE x.season = (SELECT value FROM meta WHERE key = 'current_season')
       AND x.as_of_gw = (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'next_gw')
@@ -235,15 +256,20 @@ form AS (            -- start_prob for the upcoming gameweek only
 ),
 src AS (
     SELECT COALESCE((SELECT value FROM meta WHERE key = 'forecast_source'), 'model') AS source
+),
+pick AS (            -- does this player use FPL's number? (R20)
+    SELECT n.*, sn.ep_next,
+           (src.source = 'fpl_ep' AND sn.ep_next IS NOT NULL
+            AND COALESCE(n.mult_next, 0) > 0) AS use_ep
+    FROM next3 AS n
+    CROSS JOIN src
+    LEFT JOIN v_latest_snapshot AS sn ON sn.player_id = n.player_id
 )
-SELECT n.player_id,
-       CASE WHEN src.source = 'fpl_ep' AND sn.ep_next IS NOT NULL
-            THEN sn.ep_next ELSE n.xp_model_next END AS xp_next,
-       n.xp_next3,
+SELECT p.player_id,
+       CASE WHEN p.use_ep THEN p.ep_next ELSE p.xp_model_next END AS xp_next,
+       CASE WHEN p.use_ep THEN p.ep_next * p.mult_next3 / p.mult_next
+            ELSE p.xp_model_next3 END AS xp_next3,
        fm.start_prob,
-       CASE WHEN src.source = 'fpl_ep' AND sn.ep_next IS NOT NULL
-            THEN 'fpl_ep' ELSE 'model' END AS xp_source
-FROM next3 AS n
-CROSS JOIN src
-JOIN form AS fm ON fm.player_id = n.player_id
-LEFT JOIN v_latest_snapshot AS sn ON sn.player_id = n.player_id;
+       CASE WHEN p.use_ep THEN 'fpl_ep' ELSE 'model' END AS xp_source
+FROM pick AS p
+JOIN form AS fm ON fm.player_id = p.player_id;
