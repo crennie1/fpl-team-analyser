@@ -38,7 +38,8 @@ def make_squad(conn, bank=0):
 
 class FakeEntryClient:
     def __init__(self, current_event=9, chip=None, bank=15, transfers=(), history=None,
-                 status=None):
+                 status=None, banks=None):
+        self.banks = banks or {}
         self.current_event = current_event
         self.chip = chip
         self.bank = bank
@@ -56,7 +57,7 @@ class FakeEntryClient:
     def entry_picks(self, tid, gw):
         self.picks_calls.append(gw)
         chip = self.chip if gw == self.current_event else None
-        return {"active_chip": chip, "entry_history": {"bank": self.bank, "value": 1000},
+        return {"active_chip": chip, "entry_history": {"bank": self.banks.get(gw, self.bank), "value": 1000},
                 "picks": [{"element": i, "position": i, "multiplier": 1,
                            "is_captain": i == 9, "is_vice_captain": i == 10}
                           for i in range(1, 16)]}
@@ -96,11 +97,16 @@ def test_load_squad_basic(conn):
 
 
 def test_free_hit_uses_previous_picks(conn):
-    client = FakeEntryClient(current_event=9, chip="freehit")
+    t = [{"element_in": 12, "element_in_cost": 30, "element_out": 99, "element_out_cost": 30,
+          "event": 9, "time": "2026-10-18T10:00:00Z"}]
+    client = FakeEntryClient(current_event=9, chip="freehit", transfers=t, banks={9: 5, 8: 23})
     sq = load_squad(client, conn, 1)
     assert client.picks_calls == [9, 8]
     assert sq.gw == 8
     assert "Free Hit" in sq.note and "GW8" in sq.note
+    assert sq.bank == 23
+    # the Free Hit week transfer-in must not set player 12's buy price (fallback: 50)
+    assert next(p for p in sq.picks if p.player_id == 12).selling_price == 50
 
 
 def test_selling_price_rule():
@@ -117,6 +123,25 @@ def test_selling_price_from_transfers(conn):
           "event": 5, "time": "2026-09-20T10:00:00Z"}]
     sq = load_squad(FakeEntryClient(transfers=t), conn, 1)
     assert next(p for p in sq.picks if p.player_id == 8).selling_price == 61
+
+
+def test_selling_price_uses_latest_buy_and_ignores_future_transfers(conn):
+    conn.execute("UPDATE player_snapshot SET now_cost = 69 WHERE player_id = 8")
+    conn.commit()
+    t = [
+        {"element_in": 8, "element_in_cost": 60, "element_out": 90, "element_out_cost": 55,
+         "event": 3, "time": "2026-09-01T10:00:00Z"},
+        {"element_in": 91, "element_in_cost": 70, "element_out": 8, "element_out_cost": 63,
+         "event": 5, "time": "2026-09-20T10:00:00Z"},
+        {"element_in": 8, "element_in_cost": 65, "element_out": 92, "element_out_cost": 60,
+         "event": 6, "time": "2026-09-27T10:00:00Z"},
+        {"element_in": 10, "element_in_cost": 40, "element_out": 93, "element_out_cost": 40,
+         "event": 10, "time": "2026-10-25T10:00:00Z"},
+    ]
+    sq = load_squad(FakeEntryClient(transfers=t), conn, 1)
+    assert next(p for p in sq.picks if p.player_id == 8).selling_price == 67  # 65 + 4//2
+    # GW10 transfer is after shown GW9: ignored, fallback buy 50 == now 50
+    assert next(p for p in sq.picks if p.player_id == 10).selling_price == 50
 
 
 def test_selling_price_kept_player_uses_first_gw_price(conn):
