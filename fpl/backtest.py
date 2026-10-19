@@ -67,13 +67,15 @@ def run(conn, season: str, from_gw: int = 6) -> dict:
             f"SELECT AVG(ABS({m} - actual)), COUNT(*) FROM bt_scored WHERE {where}").fetchone()
         result[m] = {"mae": float(mae) if mae is not None else float("nan"), "n": int(n)}
     gws = conn.execute(f"SELECT MIN(gw), MAX(gw) FROM bt_scored WHERE {where}").fetchone()
+    covered = [g for (g,) in conn.execute(
+        f"SELECT DISTINCT gw FROM bt_scored WHERE {where} ORDER BY gw")]
     conn.executescript("DROP TABLE temp.bt_scored; DROP TABLE temp.bt_xp; DROP TABLE temp.bt_actual;")
 
     valid = {m: result[m]["mae"] for m in METHODS if result[m]["n"] > 0}
     # Ties go to "model" first (listed first): the cheaper, explainable choice.
     winner = min(valid, key=valid.get) if valid else "model"
     result.update(winner=winner, season=season, from_gw=from_gw,
-                  first_gw=gws[0], last_gw=gws[1])
+                  first_gw=gws[0], last_gw=gws[1], covered_gws=covered)
     conn.execute("INSERT INTO meta (key, value) VALUES ('forecast_source', ?) "
                  "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                  ("fpl_ep" if winner == "fpl_ep" else "model",))
@@ -81,11 +83,25 @@ def run(conn, season: str, from_gw: int = 6) -> dict:
     return result
 
 
+def _ranges(gws):
+    out, start, prev = [], None, None
+    for g in list(gws) + [None]:
+        if start is None:
+            start = prev = g
+        elif g is not None and g == prev + 1:
+            prev = g
+        else:
+            out.append(f"{start}" if start == prev else f"{start}-{prev}")
+            start = prev = g
+    return ", ".join(out) if gws else ""
+
+
 def write_report(result: dict, path: Path) -> None:
     w = result["winner"]
     if w == "fpl_ep":
-        meaning = ("The app will show FPL's own `ep_next` as its expected points, "
-                   "because it predicted better than our model.")
+        meaning = ("FPL's own prediction was more accurate on these gameweeks, so the app "
+                   "uses FPL's own prediction for next-gameweek points and our model "
+                   "for the 3-gameweek suggestions.")
     elif w == "model":
         meaning = ("The app will use our SQL model for expected points, because it "
                    "predicted better than both baselines.")
@@ -96,15 +112,23 @@ def write_report(result: dict, path: Path) -> None:
     verdict = "beat" if result["model"]["mae"] < base else "did not beat"
     rows = "\n".join(
         f"| {LABELS[m]} | {result[m]['mae']:.3f} | {result[m]['n']} |" for m in METHODS)
+    covered = result["covered_gws"]
+    ranges = _ranges(covered)
+    missing = [g for g in range(result["from_gw"], (result["last_gw"] or 0) + 1)
+               if g not in covered]
     text = f"""# Backtest report
 
-Season: {result['season']}, gameweeks {result['first_gw']} to {result['last_gw']} \
-(scoring starts at GW{result['from_gw']}).
+Season: {result['season']}. Scoring starts at GW{result['from_gw']}.
+Gameweeks scored ({len(covered)}): {ranges}. Rows scored: {result['model']['n']} per method.
 
 Each method predicts one gameweek ahead using only earlier information. Score is mean
 absolute error (MAE) in FPL points per player-gameweek; lower is better. Only players
-who were in a squad (minutes > 0 or start probability > 0) are scored, and only rows
-where all three methods have a prediction, so every method is judged on the same rows.
+who were in a squad (minutes > 0 or start probability > 0) are scored.
+
+The past-season archive does not contain FPL's own predictions (`ep_pre`) for the other
+gameweeks (listed as zero for every player, so stored as missing). Those gameweeks are
+left out for all three methods, so every method is judged on exactly the same rows.
+Gameweeks with no FPL prediction (between GW{result['from_gw']} and GW{result['last_gw']}): {_ranges(missing) or 'none'}.
 
 | Method | MAE | Rows |
 |---|---|---|
@@ -121,6 +145,7 @@ What this means for the app: {meaning}
   optimistic. The baselines have no such advantage.
 - A player's first appearance has no last-5 history, so those rows are dropped for all methods.
 - Double gameweeks: actual points and predictions are summed over both fixtures.
+- The comparison covers only the gameweeks listed above, not the whole season.
 """
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     Path(path).write_text(text)

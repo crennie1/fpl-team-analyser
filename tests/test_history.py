@@ -55,3 +55,23 @@ def test_history_records_season_and_is_rerunnable(tmp_db):
         "SELECT value FROM meta WHERE key = 'backtest_season'"
     ).fetchone()[0] == "2025-26"
     assert tmp_db.execute("SELECT COUNT(*) FROM player_gw").fetchone()[0] == 6
+
+
+def test_history_all_zero_xP_gameweek_is_null(tmp_db, tmp_path):
+    lines = (FIX / "vaastav_merged_gw.csv").read_text().splitlines()
+    hdr = lines[0].split(",")
+    base = dict(zip(hdr, lines[1].split(",")))
+
+    def row(gw, xp, el):
+        d = dict(base, GW=str(gw), xP=str(xp), element=str(el))
+        return ",".join(d[h] for h in hdr)
+    # gw 20: all zero (missing); gw 21: one zero, one real (populated)
+    extra = [row(20, "0.0", 612), row(20, "0.0", 541), row(21, "0.0", 612), row(21, "3.1", 541)]
+    p = tmp_path / "merged.csv"
+    p.write_text("\n".join(lines + extra) + "\n")
+    history.load(tmp_db, "2025-26", p, FIX / "vaastav_fixtures.csv", FIX / "vaastav_teams.csv")
+    q = "SELECT ep_pre FROM player_gw WHERE gw = ? AND player_id = ?"
+    assert tmp_db.execute(q, (20, 612)).fetchone()[0] is None
+    assert tmp_db.execute(q, (20, 541)).fetchone()[0] is None
+    assert tmp_db.execute(q, (21, 612)).fetchone()[0] == 0.0
+    assert tmp_db.execute(q, (21, 541)).fetchone()[0] == 3.1

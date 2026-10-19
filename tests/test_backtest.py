@@ -55,3 +55,11 @@ def test_report_contains_table(db_with_sample, tmp_path):
     for label in backtest.LABELS.values():
         assert label in text
     assert "fit" in text and "same season" in text
+
+
+def test_backtest_excludes_null_ep_gameweek_for_all_methods(db_with_sample):
+    _sample_rows(db_with_sample, False)
+    db_with_sample.execute("UPDATE player_gw SET ep_pre = NULL WHERE season='2026-27' AND gw = 6")
+    r = backtest.run(db_with_sample, "2026-27", from_gw=6)
+    assert {r[m]["n"] for m in backtest.METHODS} == {3}
+    assert r["covered_gws"] == [7]

@@ -73,6 +73,9 @@ def load(conn, season, merged_gw_csv, fixtures_csv, teams_csv):
             ],
         )
 
+        # R14: a gameweek where every row has xP = 0 is missing data in the
+        # archive, not a prediction, so its ep_pre is stored as NULL.
+        populated_gws = {int(r["GW"]) for r in merged if (_float(r["xP"]) or 0) != 0}
         rows = []
         for r in merged:
             fid = int(r["fixture"])
@@ -83,7 +86,8 @@ def load(conn, season, merged_gw_csv, fixtures_csv, teams_csv):
                 fdr = _int(fx["team_h_difficulty" if home else "team_a_difficulty"])
             rows.append((
                 season, int(r["GW"]), int(r["element"]), fid, _int(r["minutes"]),
-                _int(r["total_points"]), home, _int(r["opponent_team"]), fdr, _float(r["xP"]),
+                _int(r["total_points"]), home, _int(r["opponent_team"]), fdr,
+                _float(r["xP"]) if int(r["GW"]) in populated_gws else None,
             ))
         # OR IGNORE: the archive repeats some rows verbatim (players who changed club).
         conn.executemany(
