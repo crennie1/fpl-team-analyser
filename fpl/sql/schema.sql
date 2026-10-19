@@ -65,3 +65,21 @@ CREATE TABLE IF NOT EXISTS meta (
 CREATE INDEX IF NOT EXISTS idx_player_gw_player ON player_gw (season, player_id, gw);
 CREATE INDEX IF NOT EXISTS idx_fixture_gw ON fixture (season, gw);
 CREATE INDEX IF NOT EXISTS idx_snapshot_player ON player_snapshot (season, player_id, gw);
+
+-- Squads: 'ref:<entry_id>' rows are the weekly reference sample; the app adds 'user'.
+CREATE TABLE IF NOT EXISTS squad_pick (
+    squad_id TEXT NOT NULL,
+    player_id INTEGER NOT NULL,
+    slot INTEGER NOT NULL,
+    is_starter INTEGER NOT NULL,
+    is_captain INTEGER NOT NULL,
+    PRIMARY KEY (squad_id, slot)
+);
+
+CREATE TABLE IF NOT EXISTS reference_squad (
+    season TEXT NOT NULL,
+    gw INTEGER NOT NULL,
+    squad_id TEXT NOT NULL,
+    entry_id INTEGER NOT NULL,
+    PRIMARY KEY (season, squad_id)
+);

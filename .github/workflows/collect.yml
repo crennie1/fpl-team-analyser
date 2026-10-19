@@ -1,0 +1,63 @@
+name: collect
+
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: collect
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      # Latest loaded gameweek, compared before/after collect to detect a newly finished one.
+      - name: Collect current season
+        id: collect
+        run: |
+          q="SELECT COALESCE(MAX(gw),0) FROM player_gw WHERE season = (SELECT value FROM meta WHERE key='current_season')"
+          before=$(sqlite3 data/fpl.db "$q" 2>/dev/null || echo 0)
+          python -m fpl.collect --db data/fpl.db --season 2026-27
+          after=$(sqlite3 data/fpl.db "$q")
+          echo "max gw before=$before after=$after"
+          if [ "$before" != "$after" ]; then echo "new_gw=true" >> "$GITHUB_OUTPUT"; fi
+
+      # Tuesdays only (date +%u: 1=Mon .. 7=Sun); a manual run always refreshes.
+      - name: Refresh reference sample
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "$(date -u +%u)" = "2" ]; then
+            python -m fpl.reference --db data/fpl.db --n 500
+          else
+            echo "Not Tuesday, skipping reference sample"
+          fi
+
+      - name: Re-run backtest on new gameweek
+        if: steps.collect.outputs.new_gw == 'true'
+        run: python -m fpl.backtest --db data/fpl.db
+
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/fpl.db reports/backtest.md
+          if git diff --cached --quiet; then
+            echo "No changes"
+          else
+            git commit -m "chore: scheduled data refresh"
+            git push
+          fi
