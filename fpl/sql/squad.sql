@@ -14,6 +14,11 @@
 -- v_squad_grades   each non-reference squad ranked against the reference
 --   squads of the current season: percentile (ruling R15), then a letter.
 --
+-- Forecast source: xp_next_cache is a snapshot of v_xp_next, refreshed by
+-- db.refresh_xp_cache after each data load (collect, history, reference,
+-- backtest) and when the app opens the database. It is a table, not a view,
+-- because the full forecast chain is too slow to rerun on every squad edit.
+--
 -- View chain:  v_squad_pick_xp + v_squad_fixtures -> v_squad_metrics -> v_squad_area_value -> v_squad_grades
 -- =====================================================================
 
@@ -26,8 +31,8 @@ DROP VIEW IF EXISTS v_squad_pick_xp;
 
 -- One row per squad pick with the player's position, expected points and risk flag.
 CREATE VIEW v_squad_pick_xp AS
-WITH xp AS MATERIALIZED (   -- compute the forecast once, not once per pick
-    SELECT player_id, xp_next, start_prob FROM v_xp_next
+WITH xp AS MATERIALIZED (   -- read the forecast cache once, not once per pick
+    SELECT player_id, xp_next, start_prob FROM xp_next_cache
 )
 SELECT sp.squad_id, sp.player_id, sp.slot, sp.is_starter, sp.is_captain,
        pl.position,

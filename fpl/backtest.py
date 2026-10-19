@@ -160,10 +160,12 @@ def main(argv=None):
     conn = db.connect(args.db)
     try:
         db.apply_views(conn)
+        db.refresh_xp_cache(conn)
         season = conn.execute("SELECT value FROM meta WHERE key='backtest_season'").fetchone()[0]
         result = run(conn, season, args.from_gw)
         write_report(result, Path(args.report))
         db.apply_views(conn)
+        db.refresh_xp_cache(conn)
         conn.commit()
     finally:
         conn.close()

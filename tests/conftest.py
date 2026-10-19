@@ -168,6 +168,7 @@ def _add_squad(conn, squad_id, first_pid, xp=4.0, team=1, captain_slot=9, flags=
                                       "is_starter": int(slot <= 11),
                                       "is_captain": int(slot == captain_slot)}])
     conn.commit()
+    db.refresh_xp_cache(conn)   # the squad views read the forecast cache
     return pids
 
 

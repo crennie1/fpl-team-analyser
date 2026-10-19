@@ -133,6 +133,7 @@ def main(argv=None):
     db.apply_sql(conn, "schema.sql")
     n = run(conn, FplClient(), args.season)
     db.apply_views(conn)
+    db.refresh_xp_cache(conn)
     print(f"Upserted {n} player-gameweek rows")
     conn.close()
 

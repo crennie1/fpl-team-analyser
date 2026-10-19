@@ -56,7 +56,7 @@ def _player_views(conn):
         "JOIN player AS pl ON pl.player_id = sp.player_id "
         "     AND pl.season = (SELECT value FROM meta WHERE key = 'current_season') "
         "JOIN team AS t ON t.season = pl.season AND t.team_id = pl.team_id "
-        "LEFT JOIN v_xp_next AS x ON x.player_id = sp.player_id "
+        "LEFT JOIN xp_next_cache AS x ON x.player_id = sp.player_id "
         "LEFT JOIN v_latest_snapshot AS sn ON sn.player_id = sp.player_id "
         "WHERE sp.squad_id = 'user' ORDER BY sp.slot").fetchall()
     views = []

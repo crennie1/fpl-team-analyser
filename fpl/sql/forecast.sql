@@ -211,32 +211,39 @@ GROUP BY season, player_id, gw, as_of_gw;
 
 -- What the app shows: current season, upcoming gameweek.
 -- xp_next uses FPL's own ep_next only when meta.forecast_source = 'fpl_ep'.
+-- The season / next_gw filters are written as scalar subqueries on the views
+-- below (not as joins to a CTE) so SQLite can push them down and only forecast
+-- the one gameweek that is needed, instead of every gameweek of every season.
 CREATE VIEW v_xp_next AS
-WITH cfg AS (
-    SELECT (SELECT value FROM meta WHERE key = 'current_season')            AS season,
-           (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'next_gw')  AS next_gw,
-           COALESCE((SELECT value FROM meta WHERE key = 'forecast_source'), 'model')
-                                                                            AS source
-),
-next3 AS (           -- sum of the model over next_gw .. next_gw + 2
+WITH next3 AS (      -- sum of the model over next_gw .. next_gw + 2
     SELECT x.player_id,
-           SUM(CASE WHEN x.gw = cfg.next_gw THEN x.xp_model END) AS xp_model_next,
-           SUM(x.xp_model)                                       AS xp_next3
-    FROM v_xp AS x, cfg
-    WHERE x.season = cfg.season
-      AND x.as_of_gw = cfg.next_gw
-      AND x.gw BETWEEN cfg.next_gw AND cfg.next_gw + 2
+           SUM(CASE WHEN x.gw = (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'next_gw')
+                    THEN x.xp END) AS xp_model_next,
+           SUM(x.xp)               AS xp_next3
+    FROM v_xp_fixture AS x      -- same totals as v_xp, but SQLite can push the filters into it
+    WHERE x.season = (SELECT value FROM meta WHERE key = 'current_season')
+      AND x.as_of_gw = (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'next_gw')
+      AND x.gw BETWEEN (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'next_gw')
+                   AND (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'next_gw') + 2
     GROUP BY x.player_id
+),
+form AS (            -- start_prob for the upcoming gameweek only
+    SELECT player_id, start_prob
+    FROM v_player_form
+    WHERE season = (SELECT value FROM meta WHERE key = 'current_season')
+      AND as_of_gw = (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'next_gw')
+),
+src AS (
+    SELECT COALESCE((SELECT value FROM meta WHERE key = 'forecast_source'), 'model') AS source
 )
 SELECT n.player_id,
-       CASE WHEN cfg.source = 'fpl_ep' AND sn.ep_next IS NOT NULL
+       CASE WHEN src.source = 'fpl_ep' AND sn.ep_next IS NOT NULL
             THEN sn.ep_next ELSE n.xp_model_next END AS xp_next,
        n.xp_next3,
        fm.start_prob,
-       CASE WHEN cfg.source = 'fpl_ep' AND sn.ep_next IS NOT NULL
+       CASE WHEN src.source = 'fpl_ep' AND sn.ep_next IS NOT NULL
             THEN 'fpl_ep' ELSE 'model' END AS xp_source
 FROM next3 AS n
-CROSS JOIN cfg
-JOIN v_player_form AS fm
-  ON fm.season = cfg.season AND fm.player_id = n.player_id AND fm.as_of_gw = cfg.next_gw
+CROSS JOIN src
+JOIN form AS fm ON fm.player_id = n.player_id
 LEFT JOIN v_latest_snapshot AS sn ON sn.player_id = n.player_id;

@@ -75,6 +75,7 @@ def main(argv=None):
         season, gw = meta["current_season"], int(meta["next_gw"]) - 1
         count = sample(conn, FplClient(), season, gw, args.n, args.seed)
         db.apply_views(conn)
+        db.refresh_xp_cache(conn)
         conn.commit()
     finally:
         conn.close()

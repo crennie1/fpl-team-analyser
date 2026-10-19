@@ -36,6 +36,16 @@ def apply_views(conn):
         apply_sql(conn, *present)
 
 
+def refresh_xp_cache(conn):
+    """Replace xp_next_cache with the current rows of v_xp_next (run after every data load)."""
+    conn.execute("CREATE TABLE IF NOT EXISTS xp_next_cache (player_id INTEGER PRIMARY KEY, "
+                 "xp_next REAL, xp_next3 REAL, start_prob REAL, xp_source TEXT)")
+    conn.execute("DELETE FROM xp_next_cache")
+    conn.execute("INSERT INTO xp_next_cache SELECT player_id, xp_next, xp_next3, start_prob, xp_source "
+                 "FROM v_xp_next")
+    conn.commit()
+
+
 def memory_copy(path):
     """Copy the database at `path` into memory and (re)create the views."""
     src = sqlite3.connect(str(path))
@@ -47,4 +57,5 @@ def memory_copy(path):
     mem.row_factory = sqlite3.Row
     mem.execute("PRAGMA foreign_keys = ON")
     apply_views(mem)
+    refresh_xp_cache(mem)
     return mem

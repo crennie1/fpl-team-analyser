@@ -133,6 +133,7 @@ def main(argv=None):
             db.apply_sql(conn, "schema.sql")
             n = load(conn, args.season, paths["merged"], paths["fixtures"], paths["teams"])
             db.apply_views(conn)
+            db.refresh_xp_cache(conn)
         finally:
             conn.close()
     print(f"loaded {n} player_gw rows for {args.season}")

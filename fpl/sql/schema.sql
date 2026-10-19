@@ -84,3 +84,13 @@ CREATE TABLE IF NOT EXISTS reference_squad (
     entry_id INTEGER NOT NULL,
     PRIMARY KEY (season, squad_id)
 );
+
+-- Forecast snapshot: a copy of v_xp_next taken after each data load by
+-- db.refresh_xp_cache. The squad views read this table so the app is fast.
+CREATE TABLE IF NOT EXISTS xp_next_cache (
+    player_id INTEGER PRIMARY KEY,
+    xp_next REAL,
+    xp_next3 REAL,
+    start_prob REAL,
+    xp_source TEXT
+);
