@@ -70,13 +70,23 @@ def _player_info(conn, ids):
     return info
 
 
-def _price_at(client, conn, player_id, gw):
-    """Price of a player in `gw`: snapshot first, then element-summary history."""
+def _start_prices(client):
+    """Season-start price per player from one bootstrap call: now_cost - cost_change_start."""
+    return {e["id"]: e["now_cost"] - e["cost_change_start"]
+            for e in client.bootstrap().get("elements", [])
+            if e.get("now_cost") is not None and e.get("cost_change_start") is not None}
+
+
+def _price_at(client, conn, player_id, gw, start_prices=None):
+    """Price of a player in `gw`: snapshot first, then for gw 1 the bootstrap
+    season-start price (`start_prices()`, called lazily), then element-summary history."""
     row = conn.execute(
         "SELECT now_cost FROM player_snapshot WHERE season = ? AND gw = ? AND player_id = ?",
         (_current_season(conn), gw, player_id)).fetchone()
     if row and row[0] is not None:
         return row[0]
+    if gw == 1 and start_prices is not None and player_id in start_prices():
+        return start_prices()[player_id]
     for h in client.element_summary(player_id).get("history", []):
         if h.get("round") == gw:
             return h["value"]
@@ -116,13 +126,20 @@ def load_squad(client, conn, team_id) -> Squad:
 
     raw = sorted(picks_data["picks"], key=lambda p: p["position"])
     info = _player_info(conn, [p["element"] for p in raw])
+    cache = {}
+
+    def start_prices():   # one bootstrap call, only if a GW1 price is needed
+        if "prices" not in cache:
+            cache["prices"] = _start_prices(client)
+        return cache["prices"]
+
     picks = []
     for p in raw:
         pid = p["element"]
         now = info[pid][2] if pid in info else None
         buy = bought.get(pid)
         if buy is None:
-            buy = _price_at(client, conn, pid, first_gw)
+            buy = _price_at(client, conn, pid, first_gw, start_prices)
         if buy is None:
             buy = now
         if now is None:
@@ -155,7 +172,10 @@ def validate(squad: Squad, conn) -> list[str]:
             problems.append(f"Squad needs {want} {k}, has {counts[k]}")
     for club, n in sorted(clubs.items()):
         if n > MAX_PER_CLUB:
-            problems.append(f"Too many players from one club (team {club} has {n}, max {MAX_PER_CLUB})")
+            row = conn.execute("SELECT short_name FROM team WHERE season = ? AND team_id = ?",
+                               (_current_season(conn), club)).fetchone()
+            name = row[0] if row else f"team {club}"
+            problems.append(f"Too many players from one club ({name} has {n}, max {MAX_PER_CLUB})")
     if squad.bank < 0:
         problems.append(f"Over budget by £{-squad.bank / 10:.1f}m")
 

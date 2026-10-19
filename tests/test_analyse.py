@@ -110,3 +110,12 @@ def test_xp_cache_matches_v_xp_next_after_refresh(db_with_squads):
     live = [tuple(r) for r in conn.execute("SELECT * FROM v_xp_next ORDER BY player_id")]
     assert cache == live and len(cache) > 0
     assert conn.execute("SELECT xp_next FROM xp_next_cache WHERE player_id = 1").fetchone()[0] == 9.9
+
+
+def test_player_missing_from_db_is_named_not_dropped_silently(db_with_squads, add_squad):
+    pids = add_squad(db_with_squads, "user", 9000)
+    pids[14] = 99999                      # bench FWD the collector hasn't loaded yet
+    a = analyse_squad(db_with_squads, squad_of(pids))
+    assert a.missing == [99999]
+    assert len(a.players) == 14
+    assert analyse_squad(db_with_squads, squad_of(pids[:14] + [9015])).missing == []

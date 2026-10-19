@@ -10,9 +10,9 @@ MAX_API_ERRORS = 20
 
 
 def _fetch_picks(client, entry_id, gw):
-    """Return the pick list for one entry, or None if the team or its picks are missing."""
+    """Return the pick list for one entry, or None if the team or its picks are missing
+    (a missing team also gives 404 on its picks, so no separate entry request)."""
     try:
-        client.entry(entry_id)
         picks = client.entry_picks(entry_id, gw).get("picks")
     except FplApiError as exc:
         if exc.status == 404:
@@ -46,11 +46,11 @@ def sample(conn, client, season, gw, n=500, seed=None):
         if picks:
             squads.append((entry_id, picks))
 
-    # Only ref: rows are touched, so the user's own squad survives.
-    conn.execute(
-        "DELETE FROM squad_pick WHERE squad_id IN "
-        "(SELECT squad_id FROM reference_squad WHERE season = ?)", (season,))
-    conn.execute("DELETE FROM reference_squad WHERE season = ?", (season,))
+    # Only ref: rows are touched, so the user's own squad survives. Every old
+    # sample goes, this season's and earlier ones, so an entry drawn again next
+    # season cannot clash with its old squad_pick rows (squad_id is ref:<entry>).
+    conn.execute("DELETE FROM squad_pick WHERE squad_id LIKE 'ref:%'")
+    conn.execute("DELETE FROM reference_squad WHERE season <= ?", (season,))
     for entry_id, picks in squads:
         sid = f"ref:{entry_id}"
         conn.execute("INSERT INTO reference_squad VALUES (?,?,?,?)", (season, gw, sid, entry_id))

@@ -39,7 +39,7 @@ The forecast is written as a chain of SQL **views** (saved, named queries) in `f
 
 ### 3. Grades
 
-Your squad is scored on seven areas: attack, midfield, defence, fixtures, risk, bench and projected points (defined in `analysis/data_dictionary.md`). Each is compared with a random sample of about 500 real FPL squads (the reference squads, refreshed weekly).
+The app shows six grades: attack, midfield, defence, fixtures, risk and bench (defined in `analysis/data_dictionary.md`). Projected points are shown as a number next to the average manager's, not as a grade. Each grade is compared with a random sample of about 500 real FPL squads (the reference squads, refreshed weekly).
 
 A **percentile** is the share of those squads you beat. A grade comes from it: A is the top 20 percent (80 or higher), B is 60 to 80, C is 40 to 60, D is 20 to 40, E is the bottom 20. For fixtures and risk, lower is better, so the comparison flips.
 

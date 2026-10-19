@@ -95,9 +95,19 @@ def _load_live(conn, client, season, gw):
     return n
 
 
-def run(conn, client, season):
-    """Collect bootstrap, fixtures and new finished gameweeks; return player_gw rows upserted."""
+def season_from_bootstrap(boot) -> str:
+    """Season label from the first gameweek's deadline: year Y gives "Y-(Y+1)", e.g. 2026-27."""
+    year = int(boot["events"][0]["deadline_time"][:4])
+    return f"{year}-{(year + 1) % 100:02d}"
+
+
+def run(conn, client, season=None):
+    """Collect bootstrap, fixtures and new finished gameweeks; return player_gw rows upserted.
+
+    With no season given, it is derived from the bootstrap (season_from_bootstrap).
+    """
     boot = client.bootstrap()
+    season = season or season_from_bootstrap(boot)
     fixtures = client.fixtures()
     collected_at = _now()
     next_gw = next((e["id"] for e in boot["events"] if e["is_next"]), None)
@@ -125,7 +135,7 @@ def run(conn, client, season):
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--db", default="data/fpl.db")
-    p.add_argument("--season", required=True)
+    p.add_argument("--season", help="e.g. 2026-27; default: derived from the FPL API")
     args = p.parse_args(argv)
     from pathlib import Path
     Path(args.db).parent.mkdir(parents=True, exist_ok=True)

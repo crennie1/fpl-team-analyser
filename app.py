@@ -230,14 +230,21 @@ def render_team(conn, team, fresh):
         return
 
     squad = current_squad(conn, team, base, fresh)
-    ft = st.session_state.get(f"ft_{team}", squad.free_transfers)
-    squad_ft = replace(squad, free_transfers=int(ft))
+    ft = int(st.session_state.get(f"ft_{team}", squad.free_transfers))
+    # each test swap (a player not in the fetched squad) uses one free transfer
+    edits = len({p.player_id for p in squad.picks} - {p.player_id for p in base.picks})
+    ft_left = max(0, ft - edits)
+    squad_ft = replace(squad, free_transfers=ft_left)
     analysis = analyse_squad(conn, squad)
     suggestions = suggest(conn, squad_ft)   # leaves the user's squad in place
 
     st.markdown(f"**Analysing your GW{analysis.gw} squad**")
     if analysis.note:
         st.info(analysis.note)
+    if analysis.missing:
+        ids = ", ".join(map(str, analysis.missing))
+        st.warning(f"Not shown: player {ids} — player data not loaded yet, "
+                   f"try again after the next refresh.")
 
     left, right = st.columns([2, 1])
     with left:
@@ -250,6 +257,10 @@ def render_team(conn, team, fresh):
                     f"{analysis.average_projected:.1f}</span>", unsafe_allow_html=True)
 
     st.markdown("**Suggested moves**")
+    if edits:
+        st.caption(f"Your {edits} test swap{'s' if edits > 1 else ''} "
+                   f"use{'' if edits > 1 else 's'} {edits} free transfer{'s' if edits > 1 else ''}, "
+                   f"so these assume {ft_left} free transfer{'' if ft_left == 1 else 's'} left.")
     if suggestions:
         st.caption("Best single moves — each is checked on its own against your current "
                    "squad, so pick one rather than making all of them.")
@@ -266,7 +277,8 @@ def edit_squad(conn, team, analysis, squad):
     ss = st.session_state
     st.number_input("Free transfers", min_value=0, max_value=5, value=squad.free_transfers,
                     step=1, key=f"ft_{team}",
-                    help="Estimated from your transfer history; change it if it is wrong.")
+                    help="Estimated from your transfer history; change it if it is wrong. "
+                         "Test swaps below are taken off this for the suggestions.")
     by_id = {p.player_id: p for p in analysis.players}
     out_id = st.selectbox("Player to sell", list(by_id), key="swap_out",
                           format_func=lambda i: f"{by_id[i].name} ({by_id[i].position}, "

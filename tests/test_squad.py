@@ -38,8 +38,10 @@ def make_squad(conn, bank=0):
 
 class FakeEntryClient:
     def __init__(self, current_event=9, chip=None, bank=15, transfers=(), history=None,
-                 status=None, banks=None):
+                 status=None, banks=None, elements=()):
         self.banks = banks or {}
+        self.elements = list(elements)
+        self.bootstrap_calls = 0
         self.current_event = current_event
         self.chip = chip
         self.bank = bank
@@ -71,6 +73,10 @@ class FakeEntryClient:
     def element_summary(self, pid):
         self.summary_calls.append(pid)
         return {"history": [{"round": 1, "value": 50}]}
+
+    def bootstrap(self):
+        self.bootstrap_calls += 1
+        return {"elements": self.elements}
 
 
 def test_load_squad_unknown_id(conn):
@@ -157,6 +163,28 @@ def test_selling_price_kept_player_uses_first_gw_price(conn):
     assert next(p for p in sq.picks if p.player_id == 4).selling_price == 50
 
 
+def test_gw1_buy_price_from_bootstrap_start_cost(conn):
+    conn.execute("UPDATE player_snapshot SET now_cost = 56 WHERE player_id = 5 AND gw = 9")
+    conn.commit()
+    client = FakeEntryClient(elements=[
+        {"id": 5, "now_cost": 56, "cost_change_start": 4},
+        {"id": 6, "now_cost": 48, "cost_change_start": -2}])
+    sq = load_squad(client, conn, 1)
+    by_id = {p.player_id: p for p in sq.picks}
+    assert by_id[5].selling_price == 54            # bought at 56 - 4 = 52, now 56
+    assert by_id[6].selling_price == 50            # bought at 50, now 50
+    assert 5 not in client.summary_calls and 6 not in client.summary_calls
+    assert 7 in client.summary_calls               # not in bootstrap: element_summary fallback
+    assert client.bootstrap_calls == 1
+
+
+def test_later_first_gw_does_not_use_bootstrap(conn):
+    client = FakeEntryClient(history={"current": [{"event": 3, "event_transfers": 0}], "chips": []},
+                             elements=[{"id": 5, "now_cost": 56, "cost_change_start": 4}])
+    load_squad(client, conn, 1)
+    assert client.bootstrap_calls == 0 and 5 in client.summary_calls
+
+
 def hist(rows, chips=()):
     return {"current": [{"event": e, "event_transfers": t} for e, t in rows],
             "chips": [{"name": n, "event": e} for n, e in chips]}
@@ -188,6 +216,14 @@ def test_validate_three_per_club(conn):
     conn.commit()
     problems = validate(make_squad(conn), conn)
     assert any("one club" in p for p in problems)
+
+
+def test_validate_club_limit_names_the_club(conn):
+    conn.execute("INSERT INTO team VALUES (?, 1, 'Arsenal', 'ARS')", (SEASON,))
+    conn.execute("UPDATE player SET team_id = 1 WHERE player_id IN (3, 4, 5, 6)")
+    conn.commit()
+    problems = validate(make_squad(conn), conn)
+    assert "Too many players from one club (ARS has 5, max 3)" in problems
 
 
 def test_validate_budget_and_xi(conn):

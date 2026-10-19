@@ -1,5 +1,5 @@
 """Analyse a user's squad: per-player colours and flags, grades and projection."""
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 from fpl.squad import Squad
@@ -29,6 +29,7 @@ class Analysis:
     average_projected: float
     gw: int
     note: str | None
+    missing: list = field(default_factory=list)   # squad player ids not in the database yet (not on the pitch)
 
 
 def colour_for(xp_next, chance_next):
@@ -82,7 +83,10 @@ def analyse_squad(conn, squad: Squad) -> Analysis:
         "SELECT AVG(m.projected) FROM v_squad_metrics AS m "
         "JOIN reference_squad AS r ON r.squad_id = m.squad_id "
         "WHERE r.season = (SELECT value FROM meta WHERE key = 'current_season')").fetchone()[0]
-    return Analysis(_player_views(conn), grades,
+    players = _player_views(conn)
+    shown = {p.player_id for p in players}
+    return Analysis(players, grades,
                     projected[0] if projected else 0.0,
                     average if average is not None else 0.0,
-                    squad.gw, squad.note)
+                    squad.gw, squad.note,
+                    [p.player_id for p in squad.picks if p.player_id not in shown])

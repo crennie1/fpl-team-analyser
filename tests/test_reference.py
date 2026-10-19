@@ -14,11 +14,11 @@ class PicksClient:
         return {"total_players": self.total}
 
     def entry(self, team_id):
-        if self.missing(team_id):
-            raise FplApiError("nope", status=404)
-        return {"id": team_id}
+        raise AssertionError("sample() needs only the picks, not the entry")
 
     def entry_picks(self, team_id, gw):
+        if self.missing(team_id):
+            raise FplApiError("nope", status=404)
         return self.picks
 
 
@@ -41,8 +41,8 @@ def test_sample_skips_404_and_reaches_n(tmp_db):
 def test_sample_stops_after_3n_attempts(tmp_db):
     client = PicksClient(missing=lambda eid: True, total=10_000)
     calls = []
-    orig = client.entry
-    client.entry = lambda eid: (calls.append(eid), orig(eid))[1]
+    orig = client.entry_picks
+    client.entry_picks = lambda eid, gw: (calls.append(eid), orig(eid, gw))[1]
     assert reference.sample(tmp_db, client, "2026-27", 7, n=5, seed=1) == 0
     assert len(calls) == 15
     assert _count(tmp_db, "SELECT COUNT(*) FROM reference_squad") == 0
@@ -63,10 +63,19 @@ class FlakyClient(PicksClient):
         super().__init__(**kw)
         self.bad = bad_ids
 
-    def entry(self, team_id):
+    def entry_picks(self, team_id, gw):
         if team_id in self.bad:
             raise FplApiError("boom", status=500)
-        return super().entry(team_id)
+        return super().entry_picks(team_id, gw)
+
+
+def test_resample_next_season_redraws_same_entry_without_pk_clash(tmp_db):
+    reference.sample(tmp_db, PicksClient(), "2025-26", 30, n=5, seed=1)
+    old_ids = {r[0] for r in tmp_db.execute("SELECT squad_id FROM reference_squad")}
+    reference.sample(tmp_db, PicksClient(), "2026-27", 7, n=5, seed=1)   # same draws
+    assert {r[0] for r in tmp_db.execute("SELECT squad_id FROM reference_squad")} == old_ids
+    assert _count(tmp_db, "SELECT COUNT(*) FROM reference_squad WHERE season = '2025-26'") == 0
+    assert _count(tmp_db, "SELECT COUNT(*) FROM squad_pick WHERE squad_id LIKE 'ref:%'") == 75
 
 
 def test_sample_skips_server_errors_then_caps(tmp_db):

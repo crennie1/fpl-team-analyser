@@ -107,3 +107,15 @@ def test_migrate_adds_news_to_old_database(tmp_path):
     conn.execute("CREATE TABLE player_snapshot (season TEXT, gw INTEGER, player_id INTEGER)")
     db.apply_sql(conn, "schema.sql")
     assert "news" in {r[1] for r in conn.execute("PRAGMA table_info(player_snapshot)")}
+
+
+def test_season_from_bootstrap_first_deadline_year():
+    assert collect.season_from_bootstrap({"events": [{"deadline_time": "2026-08-21T17:30:00Z"}]}) == "2026-27"
+    assert collect.season_from_bootstrap({"events": [{"deadline_time": "2099-08-15T10:00:00Z"}]}) == "2099-00"
+    assert collect.season_from_bootstrap({"events": [{"deadline_time": "2030-08-09T17:30:00Z"}]}) == "2030-31"
+
+
+def test_collect_derives_season_when_omitted(tmp_db, fake_client):
+    collect.run(tmp_db, fake_client)
+    assert tmp_db.execute("select value from meta where key='current_season'").fetchone()[0] == "2026-27"
+    assert tmp_db.execute("select count(distinct season) from player").fetchone()[0] == 1

@@ -32,7 +32,7 @@ jobs:
         run: |
           q="SELECT COALESCE(MAX(gw),0) FROM player_gw WHERE season = (SELECT value FROM meta WHERE key='current_season')"
           before=$(sqlite3 data/fpl.db "$q" 2>/dev/null || echo 0)
-          python -m fpl.collect --db data/fpl.db --season 2026-27
+          python -m fpl.collect --db data/fpl.db
           after=$(sqlite3 data/fpl.db "$q")
           echo "max gw before=$before after=$after"
           if [ "$before" != "$after" ]; then echo "new_gw=true" >> "$GITHUB_OUTPUT"; fi

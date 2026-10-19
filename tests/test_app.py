@@ -41,6 +41,9 @@ class FakeApp:
     def element_summary(self, pid):
         return {"history": []}
 
+    def bootstrap(self):
+        return {"elements": []}
+
 
 @pytest.fixture(autouse=True)
 def clean_caches():
@@ -185,3 +188,29 @@ def test_app_sees_refreshed_database_file(env):
     later = os.path.getmtime(path) + 60
     os.utime(path, (later, later))      # a new data/fpl.db; the cache is not cleared
     assert "Player data may be out of date" in run().warning[0].value
+
+
+def test_app_test_swaps_use_up_free_transfers(env):
+    at = run()
+    assert not any("hit" in m.value for m in at.markdown if "→" in m.value)
+    at.selectbox(key="swap_out").select(USER + 10)
+    at.run()
+    at.selectbox(key="swap_in").select(POOL + 10)
+    at.run()
+    at.button(key="apply_swap").click().run()
+    caps = " ".join(c.value for c in at.caption)
+    assert "Your 1 test swap uses 1 free transfer, so these assume 0 free transfers left." in caps
+    lines = [m.value for m in at.markdown if "→" in m.value]
+    assert lines and all("(−4 hit)" in l for l in lines)
+    assert at.number_input(key=f"ft_{TEAM_ID}").value == 1     # the user's own estimate stays
+
+
+def test_app_names_player_missing_from_db(env, monkeypatch):
+    env.execute("DELETE FROM player WHERE player_id = ?", (USER + 15,))
+    env.commit()
+    monkeypatch.setattr(FakeApp, "entry_transfers", lambda self, tid: [
+        {"event": 1, "element_in": USER + 15, "element_in_cost": 50}])
+    at = run()
+    assert not at.exception
+    assert any(f"{USER + 15}" in w.value and "player data not loaded yet" in w.value
+               for w in at.warning)
