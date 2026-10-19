@@ -80,3 +80,28 @@ def test_xp_next_respects_forecast_source(db_with_sample):
     # player with no snapshot falls back to the model
     e = conn.execute("SELECT * FROM v_xp_next WHERE player_id=5").fetchone()
     assert e["xp_source"] == "model"
+
+
+def test_in_progress_gameweek_not_counted_as_zero(db_with_sample):
+    # gws 1-5 loaded, gw 6 not loaded (in progress / unplayed): as_of 7 looks back
+    # from gw 5, so A (90 min in each loaded gw) still has start_prob 1.0.
+    assert form(db_with_sample, 1, 7)["start_prob"] == pytest.approx(1.0)
+    assert form(db_with_sample, 1, 8)["start_prob"] == pytest.approx(1.0)
+
+
+def test_position_average_does_not_see_future(db_with_sample):
+    conn = db_with_sample
+    before = form(conn, 5, 5)["pts_per_90"]          # E's fallback, using gws 1-4
+    # MID gws 1-4: A 16 pts + B 4 pts over 4*(90+45) min
+    assert before == pytest.approx(20 * 90 / 540)
+    conn.execute("UPDATE player_gw SET total_points = 100 WHERE season='2026-27' AND gw = 5")
+    after = form(conn, 5, 5)["pts_per_90"]
+    assert after == pytest.approx(before)            # gw 5 is not before as_of 5
+    # ...but it does show up one gameweek later
+    assert form(conn, 5, 6)["pts_per_90"] > before
+
+
+def test_chance_next_scales_only_next_gw(db_with_sample):
+    # C: 2 pts/90, start 1.0, chance_next 25. Fixtures in gw 6 and gw 8 (FDR 3, mult 1).
+    assert xp(db_with_sample, 3, 6) == pytest.approx(0.25 * 2.0)   # next_gw: scaled
+    assert xp(db_with_sample, 3, 8) == pytest.approx(2.0)          # next_gw + 2: unscaled

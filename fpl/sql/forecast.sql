@@ -12,14 +12,16 @@
 --
 -- View chain (each one builds on the one above it):
 --   v_fdr_multiplier  -> how much each difficulty rating shifts a player's output
+--   v_last_gw         -> last loaded gameweek before each as_of_gw
 --   v_position_avg    -> fallback points per 90 for players with too little data
 --   v_player_form     -> start_prob and pts_per_90 as at a given gameweek
 --   v_xp              -> expected points per player per target gameweek
 --   v_xp_next         -> the numbers the app shows for the coming gameweek
 --
--- "as_of_gw = N" always means: use only gameweeks BEFORE N (N-1 and earlier).
--- Windows are by gameweek number, not by row count, because a player has no
--- row for a gameweek his team blanks in.
+-- "as_of_gw = N" always means: use only gameweeks BEFORE N. Windows count back
+-- from the last LOADED gameweek (a gameweek in progress is not yet loaded) and
+-- are by gameweek number, not row count, because a player has no row for a
+-- gameweek his team blanks in.
 -- =====================================================================
 
 DROP VIEW IF EXISTS v_xp_next;
@@ -28,6 +30,7 @@ DROP VIEW IF EXISTS v_xp_fixture;
 DROP VIEW IF EXISTS v_target_fixture;
 DROP VIEW IF EXISTS v_player_form;
 DROP VIEW IF EXISTS v_position_avg;
+DROP VIEW IF EXISTS v_last_gw;
 DROP VIEW IF EXISTS v_fdr_multiplier;
 DROP VIEW IF EXISTS v_latest_snapshot;
 DROP VIEW IF EXISTS v_as_of_grid;
@@ -80,55 +83,81 @@ JOIN overall AS o ON o.position = f.position
 WHERE o.pts90 > 0;
 
 
--- Fallback rate: points per 90 for each position within each season.
+-- Last loaded gameweek before each as_of_gw (ruling R12). The collector loads
+-- only finished gameweeks, so a gameweek in progress has no player_gw rows and
+-- must not be counted as zero minutes. Windows count back from this gameweek.
+CREATE VIEW v_last_gw AS
+SELECT gr.season, gr.as_of_gw,
+       (SELECT MAX(g.gw) FROM player_gw AS g
+        WHERE g.season = gr.season AND g.gw < gr.as_of_gw) AS last_gw
+FROM v_as_of_grid AS gr;
+
+
+-- Fallback rate: points per 90 for each position, as at each as_of_gw.
+-- Uses only gameweeks before as_of_gw, so it never sees the future.
+-- NULL at as_of_gw 1 (no history); harmless because start_prob is 0 there.
 CREATE VIEW v_position_avg AS
-SELECT g.season,
-       pl.position,
-       90.0 * SUM(g.total_points) / SUM(g.minutes) AS pts_per_90
-FROM player_gw AS g
-JOIN player AS pl ON pl.season = g.season AND pl.player_id = g.player_id
-WHERE g.minutes > 0
-GROUP BY g.season, pl.position;
+WITH per_gw AS (     -- totals per season, position and gameweek
+    SELECT g.season, pl.position, g.gw,
+           SUM(g.minutes) AS minutes, SUM(g.total_points) AS points
+    FROM player_gw AS g
+    JOIN player AS pl ON pl.season = g.season AND pl.player_id = g.player_id
+    WHERE g.minutes > 0
+    GROUP BY g.season, pl.position, g.gw
+)
+SELECT gr.season, p.position, gr.as_of_gw,
+       90.0 * SUM(p.points) / SUM(p.minutes) AS pts_per_90
+FROM v_as_of_grid AS gr
+JOIN per_gw AS p ON p.season = gr.season AND p.gw < gr.as_of_gw
+GROUP BY gr.season, p.position, gr.as_of_gw;
 
 
 -- Form of each player as at each gameweek, using past gameweeks only.
 CREATE VIEW v_player_form AS
 WITH windows AS (
-    -- Join each (player, as_of_gw) to that player's gameweeks in [as_of-6, as_of-1].
-    -- The window is by gameweek NUMBER, so a double gameweek (two rows) just
-    -- adds both fixtures' minutes and points, and a blank adds nothing.
+    -- Join each (player, as_of_gw) to that player's gameweeks counting back
+    -- from last_gw (R12): points window last_gw-5..last_gw, minutes window
+    -- last_gw-4..last_gw. The window is by gameweek NUMBER, so a double
+    -- gameweek (two rows) adds both fixtures and a blank adds nothing.
     SELECT pl.season, pl.player_id, pl.position, gr.as_of_gw,
            COALESCE(SUM(a.minutes), 0)      AS minutes_last6,
            COALESCE(SUM(a.total_points), 0) AS points_last6,
-           COALESCE(SUM(CASE WHEN a.gw >= gr.as_of_gw - 5 THEN a.minutes END), 0)
+           COALESCE(SUM(CASE WHEN a.gw >= lg.last_gw - 4 THEN a.minutes END), 0)
                AS minutes_last5
     FROM player AS pl
     JOIN v_as_of_grid AS gr ON gr.season = pl.season
+    JOIN v_last_gw AS lg ON lg.season = gr.season AND lg.as_of_gw = gr.as_of_gw
     LEFT JOIN player_gw AS a
            ON a.season = pl.season
           AND a.player_id = pl.player_id
-          AND a.gw BETWEEN gr.as_of_gw - 6 AND gr.as_of_gw - 1
+          AND a.gw BETWEEN lg.last_gw - 5 AND lg.last_gw
     GROUP BY pl.season, pl.player_id, pl.position, gr.as_of_gw
+),
+base AS (
+    SELECT w.season, w.player_id, w.as_of_gw, w.minutes_last5,
+           -- own rate if he has played at least 180 minutes, else the position average
+           CASE WHEN w.minutes_last6 >= 180
+                THEN 90.0 * w.points_last6 / w.minutes_last6
+                ELSE pa.pts_per_90 END AS pts_per_90,
+           -- share of the last 5 loaded GWs' minutes, capped at 1
+           MIN(1.0, w.minutes_last5 / 450.0) AS start_prob_base,
+           -- FPL's chance of playing (R13: only for the upcoming gameweek itself)
+           COALESCE(sn.chance_next / 100.0, 1.0) AS chance_factor
+    FROM windows AS w
+    LEFT JOIN v_position_avg AS pa
+           ON pa.season = w.season AND pa.position = w.position
+          AND pa.as_of_gw = w.as_of_gw
+    LEFT JOIN v_latest_snapshot AS sn
+           ON sn.season = w.season
+          AND sn.player_id = w.player_id
+          AND w.as_of_gw = (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'next_gw')
 )
-SELECT w.season,
-       w.player_id,
-       w.as_of_gw,
-       -- own rate if he has played at least 180 minutes, else the position average
-       CASE WHEN w.minutes_last6 >= 180
-            THEN 90.0 * w.points_last6 / w.minutes_last6
-            ELSE pa.pts_per_90 END AS pts_per_90,
-       -- share of the last 5 GWs' minutes, capped at 1,
-       -- then scaled by FPL's chance of playing (current season, upcoming GW only)
-       MIN(1.0, w.minutes_last5 / 450.0)
-         * COALESCE(sn.chance_next / 100.0, 1.0) AS start_prob,
-       w.minutes_last5 AS minutes_last5
-FROM windows AS w
-LEFT JOIN v_position_avg AS pa
-       ON pa.season = w.season AND pa.position = w.position
-LEFT JOIN v_latest_snapshot AS sn
-       ON sn.season = w.season
-      AND sn.player_id = w.player_id
-      AND w.as_of_gw = (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'next_gw');
+SELECT season, player_id, as_of_gw, pts_per_90,
+       start_prob_base,                          -- unscaled, for gameweeks after as_of_gw
+       chance_factor,
+       start_prob_base * chance_factor AS start_prob,   -- for the as_of_gw itself
+       minutes_last5
+FROM base;
 
 
 -- Fixtures a player has in a target gameweek, with the FDR from his side.
@@ -157,7 +186,10 @@ WHERE NOT EXISTS (SELECT 1 FROM player_gw AS g
 CREATE VIEW v_xp_fixture AS
 SELECT fm.season, fm.player_id, fm.as_of_gw, tg.as_of_gw AS gw, tf.fixture_id,
        CASE WHEN tf.fixture_id IS NULL THEN 0.0          -- blank gameweek
-            ELSE COALESCE(fm.start_prob * fm.pts_per_90 * COALESCE(m.mult, 1.0), 0.0)
+            ELSE COALESCE(fm.start_prob_base
+                          * CASE WHEN tg.as_of_gw = fm.as_of_gw   -- chance_next: upcoming GW only (R13)
+                                 THEN fm.chance_factor ELSE 1.0 END
+                          * fm.pts_per_90 * COALESCE(m.mult, 1.0), 0.0)
        END AS xp
 FROM v_player_form AS fm
 JOIN player AS pl ON pl.season = fm.season AND pl.player_id = fm.player_id
