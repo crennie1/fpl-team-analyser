@@ -1,0 +1,172 @@
+{
+ "elements": [
+  {
+   "id": 1,
+   "stats": {
+    "minutes": 90,
+    "total_points": 6
+   },
+   "explain": [
+    {
+     "fixture": 1,
+     "stats": [
+      {
+       "identifier": "minutes",
+       "points": 2,
+       "value": 90,
+       "points_modification": 0
+      },
+      {
+       "identifier": "clean_sheets",
+       "points": 4,
+       "value": 1,
+       "points_modification": 0
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": 194,
+   "stats": {
+    "minutes": 69,
+    "total_points": 2
+   },
+   "explain": [
+    {
+     "fixture": 1,
+     "stats": [
+      {
+       "identifier": "minutes",
+       "points": 2,
+       "value": 69,
+       "points_modification": 0
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": 8,
+   "stats": {
+    "minutes": 80,
+    "total_points": 9
+   },
+   "explain": [
+    {
+     "fixture": 1,
+     "stats": [
+      {
+       "identifier": "minutes",
+       "points": 2,
+       "value": 80,
+       "points_modification": 0
+      },
+      {
+       "identifier": "assists",
+       "points": 3,
+       "value": 1,
+       "points_modification": 0
+      },
+      {
+       "identifier": "clean_sheets",
+       "points": 4,
+       "value": 1,
+       "points_modification": 0
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": 12,
+   "stats": {
+    "minutes": 67,
+    "total_points": 9
+   },
+   "explain": [
+    {
+     "fixture": 1,
+     "stats": [
+      {
+       "identifier": "minutes",
+       "points": 2,
+       "value": 67,
+       "points_modification": 0
+      },
+      {
+       "identifier": "goals_scored",
+       "points": 5,
+       "value": 1,
+       "points_modification": 0
+      },
+      {
+       "identifier": "clean_sheets",
+       "points": 1,
+       "value": 1,
+       "points_modification": 0
+      },
+      {
+       "identifier": "bonus",
+       "points": 1,
+       "value": 1,
+       "points_modification": 0
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": 13,
+   "stats": {
+    "minutes": 67,
+    "total_points": 3
+   },
+   "explain": [
+    {
+     "fixture": 1,
+     "stats": [
+      {
+       "identifier": "minutes",
+       "points": 2,
+       "value": 67,
+       "points_modification": 0
+      },
+      {
+       "identifier": "clean_sheets",
+       "points": 1,
+       "value": 1,
+       "points_modification": 0
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": 26,
+   "stats": {
+    "minutes": 90,
+    "total_points": 6
+   },
+   "explain": [
+    {
+     "fixture": 1,
+     "stats": [
+      {
+       "identifier": "minutes",
+       "points": 2,
+       "value": 90,
+       "points_modification": 0
+      },
+      {
+       "identifier": "goals_scored",
+       "points": 4,
+       "value": 1,
+       "points_modification": 0
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,67 @@
+from fpl import collect, db
+
+
+def count(conn, table):
+    return conn.execute(f"select count(*) from {table}").fetchone()[0]
+
+
+def test_collect_loads_players_and_positions(tmp_db, fake_client):
+    collect.run(tmp_db, fake_client, "2026-27")
+    assert {r["position"] for r in tmp_db.execute("select position from player")} == {"GK", "DEF", "MID", "FWD"}
+    assert count(tmp_db, "team") == 3
+    assert count(tmp_db, "fixture") == 4
+
+
+def test_collect_player_gw_has_fdr_from_player_side(tmp_db, fake_client):
+    collect.run(tmp_db, fake_client, "2026-27")
+    fx = tmp_db.execute("select * from fixture where fixture_id = 1").fetchone()
+    for r in tmp_db.execute(
+        "select p.team_id, g.* from player_gw g join player p using (season, player_id) where g.fixture_id = 1"
+    ):
+        if r["team_id"] == fx["team_h"]:
+            assert r["was_home"] == 1 and r["fdr"] == fx["team_h_difficulty"]
+            assert r["opponent_team"] == fx["team_a"]
+        else:
+            assert r["was_home"] == 0 and r["fdr"] == fx["team_a_difficulty"]
+            assert r["opponent_team"] == fx["team_h"]
+
+
+def test_collect_is_idempotent(tmp_db, fake_client):
+    first = collect.run(tmp_db, fake_client, "2026-27")
+    assert first == 6
+    before = {t: count(tmp_db, t) for t in ("team", "player", "fixture", "player_gw", "player_snapshot")}
+    second = collect.run(tmp_db, fake_client, "2026-27")
+    assert second == 0
+    assert fake_client.live_calls == [1]
+    assert before == {t: count(tmp_db, t) for t in before}
+
+
+def test_collect_sets_meta(tmp_db, fake_client):
+    collect.run(tmp_db, fake_client, "2026-27")
+    meta = {r["key"]: r["value"] for r in tmp_db.execute("select * from meta")}
+    assert meta["next_gw"] == "2"
+    assert meta["current_season"] == "2026-27"
+    assert meta["last_collected"].endswith("+00:00")
+
+
+def test_snapshot_ep_copied_to_player_gw_ep_pre(tmp_db, fake_client):
+    collect.run(tmp_db, fake_client, "2026-27")
+    snap = tmp_db.execute("select player_id, ep_next from player_snapshot where gw = 2").fetchall()
+    assert len(snap) == 6
+    assert tmp_db.execute("select count(*) from player_gw where ep_pre is not null").fetchone()[0] == 0
+    # a snapshot taken before gw1 is copied onto that gameweek's rows
+    tmp_db.execute("delete from player_gw")
+    tmp_db.execute(
+        "insert into player_snapshot values ('2026-27',1,?, 'x','a',100,7.5,100,1.0)", (snap[0]["player_id"],))
+    collect.run(tmp_db, fake_client, "2026-27")
+    row = tmp_db.execute(
+        "select ep_pre from player_gw where player_id = ?", (snap[0]["player_id"],)).fetchone()
+    assert row["ep_pre"] == 7.5
+
+
+def test_apply_views_skips_missing_and_memory_copy(tmp_path, tmp_db, fake_client):
+    collect.run(tmp_db, fake_client, "2026-27")
+    db.apply_views(tmp_db)
+    tmp_db.close()
+    mem = db.memory_copy(tmp_path / "test.db")
+    assert count(mem, "player") == 6
