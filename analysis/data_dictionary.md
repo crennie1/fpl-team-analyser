@@ -168,6 +168,8 @@ A blank gameweek gives 0. A double gameweek adds both fixtures.
 
 When `forecast_source` is `model`, both numbers come from the model. `xp_source` says which was used.
 
+The backtest scores `xp_next3` too: its second table compares this scaled FPL number, the model's 3-gameweek total and the last-5 average times the number of fixtures against real points over 3 gameweeks. The one-gameweek table alone chooses `forecast_source`.
+
 **Honest caveat.** The FDR multipliers were fitted on the same past season that the backtest scores, so the model's backtest error is a little too good. FPL's own prediction and the last-5 average have no such advantage. See `reports/backtest.md`.
 
 ## Views

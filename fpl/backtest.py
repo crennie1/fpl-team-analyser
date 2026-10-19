@@ -11,6 +11,18 @@ gameweek) by mean absolute error:
 A row is scored only if the player was in a squad (minutes > 0 or
 v_player_form.start_prob > 0) and ALL three predictions exist, so every
 method is judged on identical rows.
+
+A second, 3-gameweek check (ruling R22) scores the numbers behind the
+transfer suggestions. For each start gameweek g with an FPL prediction and
+g + 2 within the loaded season (38 for a complete season), each method
+predicts points summed over g..g+2 using only gameweeks before g:
+
+  model      sum of v_xp.xp_model over g..g+2 at as_of_gw = g
+  last5_avg  last-5 average x number of fixtures in g..g+2
+  fpl_ep     ep_pre at g x (sum of FDR multipliers over g..g+2) / (multiplier
+             sum in g), as the app does (R20); the model when g has no fixture
+
+The forecast source is still decided by the one-gameweek table.
 """
 import argparse
 from pathlib import Path
@@ -19,6 +31,9 @@ from fpl import db
 
 METHODS = ("model", "last5_avg", "fpl_ep")
 LABELS = {"model": "SQL model (v_xp)", "last5_avg": "Last-5 average", "fpl_ep": "FPL ep_pre"}
+LABELS3 = {"model": "SQL model (v_xp), summed over 3 GWs",
+           "last5_avg": "Last-5 average × fixtures",
+           "fpl_ep": "FPL ep_pre, scaled over 3 GWs (R20)"}
 
 
 def run(conn, season: str, from_gw: int = 6) -> dict:
@@ -27,6 +42,8 @@ def run(conn, season: str, from_gw: int = 6) -> dict:
         DROP TABLE IF EXISTS temp.bt_actual;
         DROP TABLE IF EXISTS temp.bt_xp;
         DROP TABLE IF EXISTS temp.bt_scored;
+        DROP TABLE IF EXISTS temp.bt_xp3;
+        DROP TABLE IF EXISTS temp.bt_scored3;
     """)
     # ep_pre is identical on both rows of a double gameweek in the archive
     # (checked), so MAX() just picks that single value; NULL if all NULL.
@@ -69,18 +86,65 @@ def run(conn, season: str, from_gw: int = 6) -> dict:
     gws = conn.execute(f"SELECT MIN(gw), MAX(gw) FROM bt_scored WHERE {where}").fetchone()
     covered = [g for (g,) in conn.execute(
         f"SELECT DISTINCT gw FROM bt_scored WHERE {where} ORDER BY gw")]
+    three = _three_gw(conn, season, from_gw)
     conn.executescript("DROP TABLE temp.bt_scored; DROP TABLE temp.bt_xp; DROP TABLE temp.bt_actual;")
 
     valid = {m: result[m]["mae"] for m in METHODS if result[m]["n"] > 0}
     # Ties go to "model" first (listed first): the cheaper, explainable choice.
     winner = min(valid, key=valid.get) if valid else "model"
     result.update(winner=winner, season=season, from_gw=from_gw,
-                  first_gw=gws[0], last_gw=gws[1], covered_gws=covered)
+                  first_gw=gws[0], last_gw=gws[1], covered_gws=covered, three_gw=three)
     conn.execute("INSERT INTO meta (key, value) VALUES ('forecast_source', ?) "
                  "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                  ("fpl_ep" if winner == "fpl_ep" else "model",))
     conn.commit()
     return result
+
+
+def _three_gw(conn, season: str, from_gw: int) -> dict:
+    """3-gameweek check (R22). Reads temp.bt_actual and temp.bt_xp from run()."""
+    # model total, fixture count and FDR multipliers over g..g+2, forecast at as_of g
+    conn.execute("""
+        CREATE TEMP TABLE bt_xp3 AS
+        SELECT player_id, as_of_gw AS gw,
+               SUM(xp) AS xp3,
+               SUM(fixture_id IS NOT NULL) AS fixtures3,
+               SUM(CASE WHEN gw = as_of_gw THEN mult END) AS mult1,
+               SUM(mult) AS mult3
+        FROM v_xp_fixture
+        WHERE season = ? AND as_of_gw >= ?
+          AND as_of_gw + 2 <= (SELECT MAX(gw) FROM player_gw WHERE season = ?)
+        GROUP BY player_id, as_of_gw
+    """, (season, from_gw, season))
+    conn.execute("CREATE INDEX temp.bt_xp3_i ON bt_xp3 (player_id, gw)")
+    conn.execute("""
+        CREATE TEMP TABLE bt_scored3 AS
+        SELECT a.player_id, a.gw,
+               (SELECT SUM(b.actual) FROM bt_actual AS b
+                WHERE b.player_id = a.player_id AND b.gw BETWEEN a.gw AND a.gw + 2) AS actual,
+               t.xp3 AS model,
+               CASE WHEN COALESCE(t.mult1, 0) > 0 THEN a.ep_pre * t.mult3 / t.mult1
+                    ELSE t.xp3 END AS fpl_ep,
+               t.fixtures3 * (SELECT AVG(p.actual) FROM (
+                    SELECT actual FROM bt_actual
+                    WHERE player_id = a.player_id AND gw < a.gw
+                    ORDER BY gw DESC LIMIT 5) AS p) AS last5_avg
+        FROM bt_actual AS a
+        JOIN bt_xp AS x ON x.player_id = a.player_id AND x.gw = a.gw
+        JOIN bt_xp3 AS t ON t.player_id = a.player_id AND t.gw = a.gw
+        WHERE (a.minutes > 0 OR x.start_prob > 0)
+          AND a.ep_pre IS NOT NULL AND t.xp3 IS NOT NULL
+    """)
+    where = "last5_avg IS NOT NULL AND actual IS NOT NULL"
+    out = {}
+    for m in METHODS:
+        mae, n = conn.execute(
+            f"SELECT AVG(ABS({m} - actual)), COUNT(*) FROM bt_scored3 WHERE {where}").fetchone()
+        out[m] = {"mae": float(mae) if mae is not None else float("nan"), "n": int(n)}
+    out["starts"] = [g for (g,) in conn.execute(
+        f"SELECT DISTINCT gw FROM bt_scored3 WHERE {where} ORDER BY gw")]
+    conn.executescript("DROP TABLE temp.bt_scored3; DROP TABLE temp.bt_xp3;")
+    return out
 
 
 def _ranges(gws):
@@ -113,6 +177,9 @@ def write_report(result: dict, path: Path) -> None:
     verdict = "beat" if result["model"]["mae"] < base else "did not beat"
     rows = "\n".join(
         f"| {LABELS[m]} | {result[m]['mae']:.3f} | {result[m]['n']} |" for m in METHODS)
+    three = result["three_gw"]
+    rows3 = "\n".join(
+        f"| {LABELS3[m]} | {three[m]['mae']:.3f} | {three[m]['n']} |" for m in METHODS)
     covered = result["covered_gws"]
     ranges = _ranges(covered)
     missing = [g for g in range(result["from_gw"], (result["last_gw"] or 0) + 1)
@@ -138,6 +205,27 @@ Gameweeks with no FPL prediction (between GW{result['from_gw']} and GW{result['l
 Winner: **{LABELS[w]}**. The model {verdict} the better baseline.
 
 What this means for the app: {meaning}
+
+## 3-gameweek check
+
+Transfer suggestions use points over the next 3 gameweeks, so this table scores
+those numbers too. Each start gameweek below has an FPL prediction and two more
+gameweeks after it. Every method predicts the player's points summed over the
+start gameweek and the next two, using only gameweeks before the start:
+
+- SQL model: the model's expected points for the 3 gameweeks added up.
+- Last-5 average × fixtures: the last-5 average times his number of fixtures.
+- FPL ep_pre, scaled: FPL's prediction for the start gameweek, scaled by how many
+  fixtures he has over the 3 gameweeks and how hard they are (what the app does).
+
+Start gameweeks ({len(three['starts'])}): {_ranges(three['starts']) or 'none'}. Rows scored: {three['model']['n']} per method.
+This sample is small, so read it as a sanity check, not a verdict.
+
+| Method | MAE | Rows |
+|---|---|---|
+{rows3}
+
+The forecast source is decided by the one-gameweek table above, not by this one.
 
 ## Caveats
 
@@ -173,6 +261,9 @@ def main(argv=None):
     for m in METHODS:
         print(f"{m}: MAE {result[m]['mae']:.3f} over {result[m]['n']} rows")
     print("winner:", result["winner"])
+    for m in METHODS:
+        t = result["three_gw"][m]
+        print(f"3-GW {m}: MAE {t['mae']:.3f} over {t['n']} rows")
 
 
 if __name__ == "__main__":
