@@ -133,7 +133,8 @@ def grades_html(grades) -> str:
 def format_suggestion(n, s) -> str:
     area, before, after = s.grade_change
     hit = f" (−{s.hit} hit)" if s.hit else ""
-    return (f"{n}. {s.out_name} → {s.in_name} · +{s.gain3:.1f} pts over the next 3 GWs · "
+    starts = f" (starts instead of {s.starts_instead})" if s.starts_instead else ""
+    return (f"{n}. {s.out_name} → {s.in_name}{starts} · +{s.gain3:.1f} pts over the next 3 GWs · "
             f"{AREA_NAMES.get(area, area.title())} {before} → {after}{hit}")
 
 

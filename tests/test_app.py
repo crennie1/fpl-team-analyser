@@ -166,3 +166,10 @@ def test_app_swap_error_shown(env):
     st.cache_resource.clear()
     at.button(key="apply_swap").click().run()
     assert any("Over budget" in e.value for e in at.error)
+
+
+def test_app_bench_suggestion_names_the_starter_it_replaces(env):
+    lines = [m.value for m in run().markdown if "→" in m.value]
+    # P9014 is the bench MID; the starting MIDs tie on xp, so the first (P9006) makes way
+    assert any(l.startswith("2. P9014 → ") and "(starts instead of P9006)" in l for l in lines)
+    assert not any("starts instead" in l for l in lines if l.startswith("1. P9006"))
