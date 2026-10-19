@@ -65,3 +65,31 @@ def test_apply_views_skips_missing_and_memory_copy(tmp_path, tmp_db, fake_client
     tmp_db.close()
     mem = db.memory_copy(tmp_path / "test.db")
     assert count(mem, "player") == 6
+
+
+def test_collect_double_gw_two_rows(tmp_db, fake_client):
+    # Turn GW1 into a double gameweek for the first player: add a second GW1 fixture
+    # (team 1 away at team 5, other difficulties) and a second explain entry.
+    base_fixtures = fake_client.fixtures()
+    base_live = fake_client.event_live(1)
+    team = fake_client.bootstrap()["elements"][0]["team"]
+    pid = fake_client.bootstrap()["elements"][0]["id"]
+    other = next(t["id"] for t in fake_client.bootstrap()["teams"] if t["id"] != team)
+    extra = {"id": 900, "event": 1, "team_h": other, "team_a": team,
+             "team_h_difficulty": 4, "team_a_difficulty": 2, "finished": True}
+    for el in base_live["elements"]:
+        if el["id"] == pid:
+            el["explain"].append({"fixture": 900, "stats": [
+                {"identifier": "minutes", "points": 1, "value": 30, "points_modification": 0},
+                {"identifier": "goals_scored", "points": 6, "value": 1, "points_modification": 0}]})
+    fake_client.fixtures = lambda: base_fixtures + [extra]
+    fake_client.event_live = lambda gw: base_live
+
+    collect.run(tmp_db, fake_client, "2026-27")
+    rows = tmp_db.execute(
+        "select * from player_gw where player_id = ? order by fixture_id", (pid,)).fetchall()
+    assert len(rows) == 2
+    first, second = rows
+    assert first["fixture_id"] == 1 and first["minutes"] == 90 and first["total_points"] == 6
+    assert second["fixture_id"] == 900 and second["minutes"] == 30 and second["total_points"] == 7
+    assert second["was_home"] == 0 and second["fdr"] == 2 and second["opponent_team"] == other
