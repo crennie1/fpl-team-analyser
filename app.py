@@ -7,32 +7,32 @@ Concurrency: the database is loaded once per server as immutable bytes
 connection from those bytes (about 10 ms), because analyse_squad writes the
 'user' squad into squad_pick and sessions must never share that table.
 """
-import html
+import json
 import os
 import sqlite3
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 from fpl import api, db
 from fpl.analyse import analyse_squad
 from fpl.api import FplApiError
+from fpl.cards import player_cards, weakness_table
 from fpl.squad import SquadError, load_squad, swap
 from fpl.suggest import suggest
+from fpl.ui.kits import KITS
 
 STALE_AFTER = timedelta(hours=36)
 API_DOWN = "FPL data is unavailable right now — try again in a few minutes."
 GRADE_ROWS = [("attack", "Attack"), ("midfield", "Midfield"), ("defence", "Defence"),
               ("fixtures", "Fixtures (next 5)"), ("risk", "Injury / rotation risk"),
               ("bench", "Bench")]
-CHIP_STYLE = {
-    "green": "background:#1b5e20;border:1px solid #fff;color:#fff",
-    "amber": "background:#f9a825;border:1px solid #f9a825;color:#000",
-    "red": "background:#c62828;border:1px solid #c62828;color:#fff",
-}
-AREA_NAMES = {"attack": "Attack", "midfield": "Midfield", "defence": "Defence"}
+TEMPLATE = Path(__file__).parent / "fpl" / "ui" / "team_view.html"
+VIEW_HEIGHT = 1100
 
 
 def db_path() -> Path:
@@ -100,55 +100,41 @@ def candidates(conn, position, squad_ids):
 
 # ------------------------------------------------------------------ rendering
 
-def chip(p) -> str:
-    label = html.escape(p.name) + (" (C)" if p.is_captain else "") + (" ✚" if p.flag else "")
-    title = f' title="{html.escape(p.flag, quote=True)}"' if p.flag else ""
-    return (f'<span{title} style="{CHIP_STYLE[p.colour]};display:inline-block;padding:3px 7px;'
-            f'margin:3px;border-radius:4px;white-space:nowrap;font-size:14px">'
-            f'{label} {p.xp_next:.1f}</span>')
+def team_view_html(payload: dict) -> str:
+    """The component page: the template with the payload JSON in place of /*DATA*/.
+
+    <, > and & are escaped as unicode so no player name can close the script tag.
+    """
+    data = (json.dumps(payload).replace("<", "\\u003c").replace(">", "\\u003e")
+            .replace("&", "\\u0026"))
+    return TEMPLATE.read_text(encoding="utf-8").replace("/*DATA*/", data)
 
 
-def pitch_html(players) -> str:
-    rows = []
-    for pos in ("FWD", "MID", "DEF", "GK"):
-        chips = "".join(chip(p) for p in players if p.is_starter and p.position == pos)
-        rows.append(f"<div>{chips}</div>")
-    bench = "".join(chip(p) for p in players if not p.is_starter)
-    return (
-        '<div style="background:#2e7d32;border-radius:8px;padding:12px 6px;color:#fff;'
-        'text-align:center;line-height:2.1">' + "".join(rows) +
-        '<div style="border-top:1px dashed rgba(255,255,255,.5);margin-top:8px;padding-top:6px">'
-        '<div style="font-size:12px;opacity:.85;letter-spacing:.05em">BENCH</div>'
-        f'<div>{bench}</div></div>'
-        '<div style="font-size:11px;opacity:.85;line-height:1.4;margin-top:8px">'
-        'Number = expected points next gameweek · green good · amber weak · red problem · '
-        '✚ = flagged by FPL (hover for news) · (C) = captain</div></div>')
+def weakness_frame(rows):
+    """Styled dataframe: positions as columns, 1 dp, the leakiest team per position highlighted."""
+    cols = {"gk": "GK", "def": "DEF", "mid": "MID", "fwd": "FWD"}
+    df = pd.DataFrame([{"Team": r["team"], **{lbl: r[k] for k, lbl in cols.items()}} for r in rows])
+    ranks = pd.DataFrame([{"Team": r["team"], **{lbl: r["rank"][k] for k, lbl in cols.items()}}
+                          for r in rows])
+    df = df.set_index("Team")
+    ranks = ranks.set_index("Team")
+    return df.style.format("{:.1f}", na_rep="–").apply(
+        lambda _: ranks.map(lambda v: "background-color:#ff5c7a;color:#0b1020;font-weight:700"
+                            if v == 1 else ""), axis=None)
 
 
-def grades_html(grades) -> str:
-    cells = []
-    for key, label in GRADE_ROWS:
-        g = grades.get(key, "–")
-        colour = "#c62828" if g in ("D", "E") else "inherit"
-        cells.append(f"<span>{label}</span><b style='color:{colour}'>{html.escape(g)}</b>")
-    return ('<div style="display:grid;grid-template-columns:1fr auto;gap:6px 12px">'
-            + "".join(cells) + "</div>")
-
-
-def format_suggestion(n, s) -> str:
-    area, before, after = s.grade_change
-    hit = f" (−{s.hit} hit)" if s.hit else ""
-    starts = f" (starts instead of {s.starts_instead})" if s.starts_instead else ""
-    return (f"{n}. {s.out_name} → {s.in_name}{starts} · +{s.gain3:.1f} pts over the next 3 GWs · "
-            f"{AREA_NAMES.get(area, area.title())} {before} → {after}{hit}")
+FORECAST_WORDS = {"fpl_ep": "FPL's own predictions",
+                  "model": "FPL's own predictions scaled by fixtures",
+                  "v2": "this site's v2 model"}
 
 
 def show_footer(meta):
-    source = {"fpl_ep": "FPL's own predictions", "model": "this site's model"}.get(
-        meta.get("forecast_source"), "unknown")
+    one = meta.get("forecast_source_1gw") or meta.get("forecast_source")
+    three = meta.get("forecast_source_3gw") or one
+    word = lambda k: FORECAST_WORDS.get(k, "unknown")   # noqa: E731
     url = repo_url()
-    forecast = (f"[Forecast: {source}]({url}/blob/main/reports/backtest.md)" if url
-                else f"Forecast: {source}")
+    text = f"Forecast: {word(one)} (next week) · {word(three)} (3 weeks)"
+    forecast = f"[{text}]({url}/blob/main/reports/backtest.md)" if url else text
     st.caption(f"Data: official FPL API · last updated {meta.get('last_collected', 'unknown')} · "
                f"{forecast}")
 
@@ -210,11 +196,18 @@ def main():
     try:
         meta = get_meta(conn)
         show_stale_warning(meta)
-        if not team:
-            st.info("Find your team ID in the address of your FPL points page: "
-                    "fantasy.premierleague.com/entry/**1234567**/event/1")
-        else:
-            render_team(conn, team, fresh)
+        team_tab, weak_tab = st.tabs(["Your team", "Opponent weaknesses"])
+        with team_tab:
+            if not team:
+                st.info("Find your team ID in the address of your FPL points page: "
+                        "fantasy.premierleague.com/entry/**1234567**/event/1")
+            else:
+                render_team(conn, team, fresh)
+        with weak_tab:
+            st.caption("Points conceded per match to each position over the last 6 gameweeks. "
+                       "The leakiest team in each column is highlighted.")
+            st.dataframe(weakness_frame(weakness_table(conn)), width="stretch",
+                         height=740)
         show_footer(meta)
     finally:
         conn.close()
@@ -247,27 +240,17 @@ def render_team(conn, team, fresh):
         st.warning(f"Not shown: player {ids} — player data not loaded yet, "
                    f"try again after the next refresh.")
 
-    left, right = st.columns([2, 1])
-    with left:
-        st.markdown(pitch_html(analysis.players), unsafe_allow_html=True)
-    with right:
-        st.markdown("**Team grades**")
-        st.markdown(grades_html(analysis.grades), unsafe_allow_html=True)
-        st.markdown(f"**Projected:** {analysis.projected:.1f} pts  \n"
-                    f"<span style='opacity:.7'>average manager: "
-                    f"{analysis.average_projected:.1f}</span>", unsafe_allow_html=True)
-
-    st.markdown("**Suggested moves**")
     if edits:
         st.caption(f"Your {edits} test swap{'s' if edits > 1 else ''} "
                    f"use{'' if edits > 1 else 's'} {edits} free transfer{'s' if edits > 1 else ''}, "
                    f"so these assume {ft_left} free transfer{'' if ft_left == 1 else 's'} left.")
-    if suggestions:
-        st.caption("Best single moves — each is checked on its own against your current "
-                   "squad, so pick one rather than making all of them.")
-        for n, s in enumerate(suggestions, start=1):
-            st.markdown(format_suggestion(n, s))
-    else:
+    payload = {
+        "cards": player_cards(conn, analysis, suggestions),
+        "grades": {label: analysis.grades.get(key, "–") for key, label in GRADE_ROWS},
+        "projected": analysis.projected, "average": analysis.average_projected,
+        "kits": KITS, "weakness": weakness_table(conn)}
+    components.html(team_view_html(payload), height=VIEW_HEIGHT, scrolling=True)
+    if not suggestions:
         st.write("No transfer clearly worth making this week.")
 
     with st.expander("Edit squad"):
@@ -295,4 +278,5 @@ def edit_squad(conn, team, analysis, squad):
         st.error(ss["swap_error"])
 
 
-main()
+if __name__ == "__main__":
+    main()

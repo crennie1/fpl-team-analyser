@@ -89,18 +89,40 @@ def text(at):
     return " ".join(m.value for m in at.markdown)
 
 
-def test_app_renders_grades_and_projection(env):
+def payload(at):
+    """The JSON the component page was built from (first iframe element)."""
+    import json
+    import re
+    frames = at.get("iframe")
+    assert len(frames) == 1
+    return json.loads(re.search(r"const DATA = (.*?);\n", frames[0].proto.srcdoc, re.S).group(1))
+
+
+def sells(at):
+    return {c["name"]: c["sell"] for c in payload(at)["cards"] if c["sell"]}
+
+
+def test_app_renders_component(env):
     at = run()
     assert not at.exception
-    body = text(at)
-    for label in ("Attack", "Midfield", "Defence", "Fixtures (next 5)",
-                  "Injury / rotation risk", "Bench"):
-        assert label in body
-    assert body.count("<b style='color:") == 6          # one grade per row
-    assert "Projected:" in body and "average manager" in body
-    assert "Analysing your GW5 squad" in body
-    assert "P9009 (C)" in body                           # captain marked on the pitch
+    p = payload(at)
+    assert list(p["grades"]) == ["Attack", "Midfield", "Defence", "Fixtures (next 5)",
+                                 "Injury / rotation risk", "Bench"]
+    assert len(p["grades"]) == 6 and p["projected"] > 0 and p["average"] > 0
+    assert sum(c["starter"] for c in p["cards"]) == 11 and len(p["cards"]) == 15
+    assert next(c for c in p["cards"] if c["name"] == "P9009")["captain"]
+    assert "Analysing your GW5 squad" in text(at)
+    assert not any("Suggested moves" in m.value for m in at.markdown)   # old list is gone
     assert at.expander[0].label == "Edit squad"
+    assert at.tabs[0].label == "Your team"
+
+
+def test_app_weakness_tab(env):
+    at = run()
+    assert at.tabs[1].label == "Opponent weaknesses"
+    df = at.dataframe[0].value
+    assert list(df.columns) == ["GK", "DEF", "MID", "FWD"]
+    assert len(df) == len(payload(at)["weakness"]) == 8      # the sample's teams
 
 
 def test_app_api_down_message(env):
@@ -120,7 +142,7 @@ def test_app_form_submit_sets_team_link(env):
     at.text_input(key="team_id").input(TEAM_ID)
     at.button[0].click().run()
     assert at.query_params["team"] == TEAM_ID
-    assert "Projected:" in text(at)
+    assert payload(at)["projected"] > 0
 
 
 def test_app_stale_warning(env):
@@ -141,21 +163,22 @@ def test_app_footer_source_and_repo_link(env, monkeypatch):
     at = run()
     foot = " ".join(c.value for c in at.caption)
     assert "official FPL API" in foot and "FPL's own predictions" in foot
+    assert "(next week)" in foot and "(3 weeks)" in foot
     assert "https://github.com/example/fpl/blob/main/reports/backtest.md" in foot
 
 
 def test_app_swap_recalculates(env):
     at = run()
-    before = text(at).split("Projected:**")[1].split("pts")[0]
+    before = payload(at)["projected"]
     at.selectbox(key="swap_out").select(USER + 10)       # a starting FWD, xp 4
     at.run()
     at.selectbox(key="swap_in").select(POOL + 10)        # FWD with xp 15
     at.run()
     at.button(key="apply_swap").click().run()
     assert not at.exception
-    after = text(at).split("Projected:**")[1].split("pts")[0]
-    assert float(after) == pytest.approx(float(before) + 11)
-    assert "P9110" in text(at)
+    after = payload(at)["projected"]
+    assert after == pytest.approx(before + 11)
+    assert "P9110" in [c["name"] for c in payload(at)["cards"]]
 
 
 def test_app_swap_error_shown(env):
@@ -172,10 +195,10 @@ def test_app_swap_error_shown(env):
 
 
 def test_app_bench_suggestion_names_the_starter_it_replaces(env):
-    lines = [m.value for m in run().markdown if "→" in m.value]
+    s = sells(run())
     # P9014 is the bench MID; the starting MIDs tie on xp, so the first (P9006) makes way
-    assert any(l.startswith("2. P9014 → ") and "(starts instead of P9006)" in l for l in lines)
-    assert not any("starts instead" in l for l in lines if l.startswith("1. P9006"))
+    assert s["P9014"]["starts_instead_of"] == "P9006"
+    assert not any(v["starts_instead_of"] for k, v in s.items() if k == "P9006")
 
 
 def test_app_sees_refreshed_database_file(env):
@@ -192,7 +215,7 @@ def test_app_sees_refreshed_database_file(env):
 
 def test_app_test_swaps_use_up_free_transfers(env):
     at = run()
-    assert not any("hit" in m.value for m in at.markdown if "→" in m.value)
+    assert all(not v["hit"] for v in sells(at).values())
     at.selectbox(key="swap_out").select(USER + 10)
     at.run()
     at.selectbox(key="swap_in").select(POOL + 10)
@@ -200,8 +223,9 @@ def test_app_test_swaps_use_up_free_transfers(env):
     at.button(key="apply_swap").click().run()
     caps = " ".join(c.value for c in at.caption)
     assert "Your 1 test swap uses 1 free transfer, so these assume 0 free transfers left." in caps
-    lines = [m.value for m in at.markdown if "→" in m.value]
-    assert lines and all("(−4 hit)" in l for l in lines)
+    s = sells(at)
+    assert s and all(v["hit"] == 4 for v in s.values())
+    assert "−" in at.get("iframe")[0].proto.srcdoc          # panel renders the hit label
     assert at.number_input(key=f"ft_{TEAM_ID}").value == 1     # the user's own estimate stays
 
 
