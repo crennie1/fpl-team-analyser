@@ -61,11 +61,13 @@ def apply_views(conn):
 
 def refresh_xp_cache(conn):
     """Replace xp_next_cache with the current rows of v_xp_next (run after every data load)."""
-    conn.execute("CREATE TABLE IF NOT EXISTS xp_next_cache (player_id INTEGER PRIMARY KEY, "
-                 "xp_next REAL, xp_next3 REAL, start_prob REAL, xp_source TEXT)")
-    conn.execute("DELETE FROM xp_next_cache")
-    conn.execute("INSERT INTO xp_next_cache SELECT player_id, xp_next, xp_next3, start_prob, xp_source "
-                 "FROM v_xp_next")
+    # A cache, so it is safe to rebuild: this also upgrades an older committed db that
+    # lacks the defcon_chance / cs_chance columns.
+    conn.execute("DROP TABLE IF EXISTS xp_next_cache")
+    conn.execute("CREATE TABLE xp_next_cache (player_id INTEGER PRIMARY KEY, xp_next REAL, "
+                 "xp_next3 REAL, start_prob REAL, xp_source TEXT, defcon_chance REAL, cs_chance REAL)")
+    conn.execute("INSERT INTO xp_next_cache SELECT player_id, xp_next, xp_next3, start_prob, "
+                 "xp_source, defcon_chance, cs_chance FROM v_xp_next")
     conn.commit()
 
 

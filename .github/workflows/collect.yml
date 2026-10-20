@@ -47,6 +47,11 @@ jobs:
             echo "Not Tuesday, skipping reference sample"
           fi
 
+      - name: Re-fit forecast v2 on the fit season
+        continue-on-error: true
+        if: steps.collect.outputs.new_gw == 'true'
+        run: python -m fpl.fit --db data/fpl.db
+
       - name: Re-run backtest on new gameweek
         continue-on-error: true
         if: steps.collect.outputs.new_gw == 'true'

@@ -221,21 +221,24 @@ GROUP BY season, player_id, gw, as_of_gw;
 
 -- What the app shows: current season, upcoming gameweek.
 --
--- In plain English: when meta.forecast_source = 'fpl_ep', FPL's own ep_next is
--- the number for the coming gameweek, and the 3-gameweek number is built from
--- that same number so the two never disagree:
---     xp_next3 = ep_next x (sum of FDR multipliers over his fixtures in the next 3 gameweeks)
---                        / (sum of FDR multipliers over his fixtures in next_gw)
--- i.e. FPL's one-week view, scaled up by how many and how hard the next three
--- weeks of fixtures are (a double gameweek counts twice, a blank counts zero).
--- If he has no fixture in next_gw (divide by zero) or ep_next is NULL, we fall
--- back to the model. When forecast_source = 'model', everything is the model.
+-- In plain English: each horizon has its own source, chosen by the backtest
+-- (meta.forecast_source_1gw for xp_next, meta.forecast_source_3gw for xp_next3;
+-- an older meta.forecast_source is the fallback for both):
+--   'fpl_ep'  FPL's own ep_next. For the 3-gameweek number it is scaled so the two
+--             never disagree:
+--                 ep_next x (sum of FDR multipliers over his fixtures in the next 3 gameweeks)
+--                         / (sum of FDR multipliers over his fixtures in next_gw)
+--             i.e. FPL's one-week view, scaled up by how many and how hard the next
+--             three weeks of fixtures are (a double gameweek counts twice, a blank zero).
+--             If he has no fixture in next_gw (divide by zero) or ep_next is NULL, we
+--             fall back to the model.
+--   'v2'      forecast v2 (v_xp2_next); falls back to the model if he has no v2 row.
+--   'model'   the v1 SQL model.
 --
--- xp_source values:
---   'fpl_ep'         xp_next and xp_next3 both come from FPL's ep_next
---                    (xp_next3 is ep_next scaled by the fixture multipliers)
---   'model'          xp_next and xp_next3 both come from the model
--- The two columns always share one source.
+-- xp_source names what was actually used: 'fpl_ep', 'v2' or 'model' when both horizons
+-- agree, otherwise the 1-gameweek source then the 3-gameweek one, e.g. 'fpl_ep/v2'.
+-- defcon_chance and cs_chance are descriptive v2 numbers for the upcoming gameweek and
+-- always show, whichever source is chosen.
 --
 -- The season / next_gw filters are written as scalar subqueries on the views
 -- below (not as joins to a CTE) so SQLite can push them down and only forecast
@@ -263,21 +266,38 @@ form AS (            -- start_prob for the upcoming gameweek only
       AND as_of_gw = (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'next_gw')
 ),
 src AS (
-    SELECT COALESCE((SELECT value FROM meta WHERE key = 'forecast_source'), 'model') AS source
+    SELECT COALESCE((SELECT value FROM meta WHERE key = 'forecast_source_1gw'),
+                    (SELECT value FROM meta WHERE key = 'forecast_source'), 'model') AS s1,
+           COALESCE((SELECT value FROM meta WHERE key = 'forecast_source_3gw'),
+                    (SELECT value FROM meta WHERE key = 'forecast_source'), 'model') AS s3
 ),
-pick AS (            -- does this player use FPL's number? (R20)
-    SELECT n.*, sn.ep_next,
-           (src.source = 'fpl_ep' AND sn.ep_next IS NOT NULL
-            AND COALESCE(n.mult_next, 0) > 0) AS use_ep
+pick AS (            -- which number does each horizon use? (R20 for fpl_ep)
+    SELECT n.*, sn.ep_next, v2.xp_v2_next, v2.xp_v2_next3, v2.defcon_chance_next, v2.cs_chance_next,
+           (src.s1 = 'fpl_ep' AND sn.ep_next IS NOT NULL
+            AND COALESCE(n.mult_next, 0) > 0) AS ep1,
+           (src.s3 = 'fpl_ep' AND sn.ep_next IS NOT NULL
+            AND COALESCE(n.mult_next, 0) > 0) AS ep3,
+           (src.s1 = 'v2' AND v2.xp_v2_next IS NOT NULL) AS v1,
+           (src.s3 = 'v2' AND v2.xp_v2_next3 IS NOT NULL) AS v3
     FROM next3 AS n
     CROSS JOIN src
     LEFT JOIN v_latest_snapshot AS sn ON sn.player_id = n.player_id
+    LEFT JOIN v_xp2_next AS v2 ON v2.player_id = n.player_id
+),
+used AS (
+    SELECT p.*,
+           CASE WHEN p.ep1 THEN 'fpl_ep' WHEN p.v1 THEN 'v2' ELSE 'model' END AS used1,
+           CASE WHEN p.ep3 THEN 'fpl_ep' WHEN p.v3 THEN 'v2' ELSE 'model' END AS used3
+    FROM pick AS p
 )
 SELECT p.player_id,
-       CASE WHEN p.use_ep THEN p.ep_next ELSE p.xp_model_next END AS xp_next,
-       CASE WHEN p.use_ep THEN p.ep_next * p.mult_next3 / p.mult_next
-            ELSE p.xp_model_next3 END AS xp_next3,
+       CASE p.used1 WHEN 'fpl_ep' THEN p.ep_next WHEN 'v2' THEN p.xp_v2_next
+            ELSE p.xp_model_next END AS xp_next,
+       CASE p.used3 WHEN 'fpl_ep' THEN p.ep_next * p.mult_next3 / p.mult_next
+            WHEN 'v2' THEN p.xp_v2_next3 ELSE p.xp_model_next3 END AS xp_next3,
        fm.start_prob,
-       CASE WHEN p.use_ep THEN 'fpl_ep' ELSE 'model' END AS xp_source
-FROM pick AS p
+       CASE WHEN p.used1 = p.used3 THEN p.used1 ELSE p.used1 || '/' || p.used3 END AS xp_source,
+       p.defcon_chance_next AS defcon_chance,
+       p.cs_chance_next AS cs_chance
+FROM used AS p
 JOIN form AS fm ON fm.player_id = p.player_id;

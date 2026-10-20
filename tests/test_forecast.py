@@ -168,3 +168,26 @@ def test_xp_next3_model_source_unchanged(db_with_sample):
     s = conn.execute("SELECT SUM(xp_model) AS s FROM v_xp WHERE season='2026-27' AND player_id=1 "
                      "AND as_of_gw=6 AND gw BETWEEN 6 AND 8").fetchone()["s"]
     assert r["xp_next3"] == pytest.approx(s)
+
+
+# --- per-horizon sources (Task 3) ---
+
+def test_xp_next_follows_each_horizon_source(db_with_sample):
+    conn = db_with_sample
+    conn.execute("INSERT INTO meta (key, value) VALUES ('forecast_source_1gw', 'model')")
+    conn.execute("INSERT INTO meta (key, value) VALUES ('forecast_source_3gw', 'fpl_ep')")
+    r = _next(conn)
+    assert r["xp_source"] == "model/fpl_ep"
+    assert r["xp_next"] == pytest.approx(4.0)                 # model
+    assert r["xp_next3"] == pytest.approx(16.5)               # ep_next 5.5 x 3 fixtures (R20)
+
+
+def test_v2_source_falls_back_to_model_without_v2_row(db_with_sample):
+    conn = db_with_sample
+    conn.execute("INSERT INTO meta (key, value) VALUES ('forecast_source_1gw', 'v2')")
+    conn.execute("INSERT INTO meta (key, value) VALUES ('forecast_source_3gw', 'v2')")
+    r = _next(conn)
+    v2 = conn.execute("SELECT * FROM v_xp2_next WHERE player_id = 1").fetchone()
+    assert r["xp_source"] == "v2"
+    assert r["xp_next"] == pytest.approx(v2["xp_v2_next"])
+    assert r["xp_next3"] == pytest.approx(v2["xp_v2_next3"])

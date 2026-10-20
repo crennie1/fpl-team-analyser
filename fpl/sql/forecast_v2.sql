@@ -29,7 +29,9 @@
 --                that position is under 0.05 a match (too rare to compare, e.g. FWD DefCon
 --                or GK xG), because dividing by a near-zero average gives huge ratios (V4).
 --  calib_att     A single fitted scale factor per position (table model_param, fitted on
---                fit_season by the backtest). 1.0 when there is no row.
+--                fit_season by fpl.fit as actual / predicted attacking points; the
+--                predicted side is column att_pred of v_xp2_fixture, so fit and forecast
+--                cannot drift apart). 1.0 when there is no row.
 --  cs_chance     Probability his team keeps a clean sheet. We model goals conceded as a
 --                Poisson with mean λ, so P(0 goals) = exp(-λ), where
 --                λ = own team's xG conceded per match (last 6) × opponent attack ratio
@@ -308,7 +310,11 @@ WITH components AS (
            COALESCE(mp.value, 1.0)
              * (COALESCE(th.xg90, 0) * CASE pl.position WHEN 'MID' THEN 5 WHEN 'FWD' THEN 4 ELSE 6 END
                 + COALESCE(th.xa90, 0) * 3)
-             * ow.xg_ratio AS att_pts
+             * ow.xg_ratio AS att_pts,
+           -- the same attacking term with calib 1.0: what fit.py calibrates against
+           (COALESCE(th.xg90, 0) * CASE pl.position WHEN 'MID' THEN 5 WHEN 'FWD' THEN 4 ELSE 6 END
+                + COALESCE(th.xa90, 0) * 3)
+             * ow.xg_ratio AS att_raw
     FROM v_xp2_slot AS s
     CROSS JOIN player AS pl ON pl.season = s.season AND pl.player_id = s.player_id
     CROSS JOIN v_player_threat AS th
@@ -328,11 +334,12 @@ SELECT season, player_id, as_of_gw, gw, fixture_id, position, start_prob,
        start_prob * ( 2.0 + att_pts
                     + CASE position WHEN 'MID' THEN 1 WHEN 'FWD' THEN 0 ELSE 4 END
                       * COALESCE(cs_chance, 0)
-                    + 2.0 * defcon_chance ) AS xp_v2
+                    + 2.0 * defcon_chance ) AS xp_v2,
+       start_prob * att_raw AS att_pred      -- expected attacking points at calib 1.0 (for fit.py)
 FROM components
 UNION ALL                -- blank gameweeks score nothing
 SELECT s.season, s.player_id, s.as_of_gw, s.gw, NULL, pl.position, s.start_prob,
-       0.0, 0.0, 0.0
+       0.0, 0.0, 0.0, 0.0
 FROM v_xp2_slot AS s
 JOIN player AS pl ON pl.season = s.season AND pl.player_id = s.player_id
 WHERE s.fixture_id IS NULL;
