@@ -48,8 +48,8 @@ body{margin:0;overflow-x:hidden;font-family:-apple-system,Segoe UI,Roboto,sans-s
  .wrap{display:block;padding:10px}
  .p{width:84px}.xp{font-size:17px}
  .proj{margin-left:0}
- .panel{position:fixed;left:0;right:0;bottom:0;top:auto;max-width:none;max-height:72vh;overflow:auto;border-radius:18px 18px 0 0;transform:translateY(100%);transition:transform .25s;z-index:5;box-shadow:0 -10px 30px rgba(0,0,0,.5)}
- .panel.open{transform:translateY(0)}
+ .panel{display:none;position:static;min-width:0;max-width:none;width:100%;margin:8px 0;flex-basis:100%;box-shadow:0 4px 18px rgba(0,0,0,.45)}
+ .panel.open{display:block}
  .close{display:block}
 }
 .kit{width:52px;height:52px;display:block;margin:2px auto 2px;filter:drop-shadow(0 2px 3px rgba(0,0,0,.45))}
@@ -91,6 +91,7 @@ function sellBlock(p){const s=p.sell;if(!s)return '';
  const inst=s.starts_instead_of?` (starts instead of ${esc(s.starts_instead_of)})`:'';
  return `<div class="swap"><div class="h">↘ Suggested sell</div><div class="r"><div style="width:40px">${shirt(s.to_club,(s.to_full_name||s.to_name).split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase())}</div><div><b>${esc(s.to_full_name)}</b> <span class="note">${esc(s.to_club)}${inst}</span><div class="note">extra points over the next 3 gameweeks${hit}</div></div><div class="gain">+${num(s.gain3)}</div></div><div class="note sell-note">Best single move — each suggestion is checked on its own against your current squad, so pick one rather than making all of them.</div></div>`}
 function draw(){
+ document.querySelector('.wrap').appendChild(document.getElementById('panel'));
  document.getElementById('grades').innerHTML=Object.entries(DATA.grades).map(([a,g])=>`<div class="g g${esc(g)}"><b>${esc(g)}</b><span>${esc(a)}</span></div>`).join('')+`<div class="proj"><b>${num(DATA.projected)} pts</b><span>projected · average manager ${num(DATA.average)}</span></div>`;
  const by=pos=>starters.filter(p=>p.pos===pos).map(card).join('');
  document.getElementById('pitch').innerHTML=['FWD','MID','DEF','GK'].map(x=>`<div class="row">${by(x)}</div>`).join('')+`<div class="bench"><div class="lbl">BENCH</div><div class="row">${bench.map(card).join('')}</div></div>`;
@@ -110,7 +111,9 @@ function draw(){
  <div class="sec">Last 6 gameweeks</div>${sb('Form (pts/gm)',l6.form,10,num(l6.form))}${sb('xG',l6.xg,7,num(l6.xg))}${sb('xA',l6.xa,7,num(l6.xa))}${gk?'':sb('DefCon hits',l6.defcon_pct,100,l6.defcon_pct==null?'–':l6.defcon_pct+'%')}
  <div class="sec">Opponent weakness</div><div class="note">${p.weakness?esc(p.weakness)+'.':'Not enough data yet.'}</div>
  <div class="sec">Set pieces</div><div class="note">${p.set_pieces?esc(p.set_pieces):'No set-piece duties'}</div>`}
-function pick(i){sel=ALL[i];draw();if(window.innerWidth<=760)document.getElementById('panel').classList.add('open')}
+function pick(i){sel=ALL[i];draw();
+ if(window.innerWidth<=760){const panel=document.getElementById('panel'),row=document.querySelectorAll('#pitch .p')[i].parentNode;
+  row.after(panel);panel.classList.add('open');panel.scrollIntoView({block:'nearest'})}}
 function closeP(){document.getElementById('panel').classList.remove('open')}
 draw();
 </script></body></html>

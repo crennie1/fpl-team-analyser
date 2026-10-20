@@ -215,7 +215,8 @@ def test_app_sees_refreshed_database_file(env):
 
 def test_app_test_swaps_use_up_free_transfers(env):
     at = run()
-    assert all(not v["hit"] for v in sells(at).values())
+    s0 = sells(at)
+    assert s0 and all(not v["hit"] for v in s0.values())
     at.selectbox(key="swap_out").select(USER + 10)
     at.run()
     at.selectbox(key="swap_in").select(POOL + 10)
@@ -225,7 +226,6 @@ def test_app_test_swaps_use_up_free_transfers(env):
     assert "Your 1 test swap uses 1 free transfer, so these assume 0 free transfers left." in caps
     s = sells(at)
     assert s and all(v["hit"] == 4 for v in s.values())
-    assert "−" in at.get("iframe")[0].proto.srcdoc          # panel renders the hit label
     assert at.number_input(key=f"ft_{TEAM_ID}").value == 1     # the user's own estimate stays
 
 

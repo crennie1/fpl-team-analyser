@@ -148,6 +148,14 @@ def test_cards_initials_v6(v2db):
     assert [c["initials"] for c in cards] == ["DR", "BF", "GG"]
 
 
+def test_cards_initials_v6b_multiword_web_name(v2db):
+    setup_league(v2db)
+    add(v2db, 1, "FWD", 1, "João", "Pedro Junqueira Maia", "João Pedro")
+    refresh(v2db)
+    cards = player_cards(v2db, analysis(view(1, "João Pedro", "FWD")), [])
+    assert cards[0]["initials"] == "JP"
+
+
 def test_cards_skip_player_missing_from_db(v2db):
     setup_league(v2db)
     add(v2db, 1, "MID", 1)

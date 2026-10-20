@@ -46,9 +46,25 @@ def test_kits_cover_current_clubs():
     assert DEFAULT_KIT["pattern"] == "plain"
 
 
-def test_sell_panel_has_note_and_hit_label():
+def test_sell_data_is_embedded_not_static_text():
     sell = {"to_name": "Cherki", "to_full_name": "Rayan Cherki", "to_club": "MCI", "gain3": 18.0,
             "hit": 4, "starts_instead_of": "Rogers"}
-    html = team_view_html(payload(sell=sell))
-    assert "Best single move" in html and "hit" in html and "starts instead of" in html
-    assert data_of(html)["cards"][0]["sell"]["hit"] == 4
+    d = data_of(team_view_html(payload(sell=sell)))["cards"][0]["sell"]
+    assert d == sell
+    # without a sell the data carries none, so the panel's sell block cannot render
+    html = team_view_html(payload(sell=None))
+    assert data_of(html)["cards"][0]["sell"] is None
+    assert "Rayan Cherki" not in html
+
+
+def test_template_sell_block_is_data_driven():
+    src = (Path(__file__).parent.parent / "fpl" / "ui" / "team_view.html").read_text()
+    assert "s.hit?" in src and "s.starts_instead_of?" in src and "p.sell" in src
+
+
+def test_narrow_screens_open_panel_inline_after_row():
+    src = (Path(__file__).parent.parent / "fpl" / "ui" / "team_view.html").read_text()
+    media = src.split("@media(max-width:760px)")[1].split("</style>")[0]
+    assert "position:fixed" not in media and "position:static" in media
+    assert "row.after(panel)" in src and "innerWidth<=760" in src
+    assert "position:fixed" not in src

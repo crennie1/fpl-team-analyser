@@ -22,6 +22,9 @@ def _meta(conn, key):
 
 def _initials(first, web_name):
     """First letter of first_name + first letter of web_name without any "X." prefix (V6)."""
+    words = web_name.split()
+    if first and first.strip() and len(words) >= 2 and web_name.startswith(first.strip()):
+        return (words[0][0] + words[1][0]).upper()          # V6b: "João Pedro" -> JP
     if first and first.strip():
         surname = web_name.split(".", 1)[1] if "." in web_name[:3] else web_name
         return (first.strip()[0] + (surname.strip() or web_name)[0]).upper()
