@@ -107,14 +107,66 @@ def defcon(conn, pid=10, gw=7, as_of=7):
 
 
 def test_defcon_rate_and_chance(v2db):
-    # player 10 hit 3 of 6 -> rate 0.5. Team 2 concedes 0.5 hits a match to DEFs, team 1
+    # player 10 hit 3 of 6. Team 2 concedes 0.5 hits a match to DEFs, team 1
     # concedes 2/6 -> league average 5/12 -> team 2's defcon_ratio = 1.2 -> chance 0.6
     defcon_league(v2db, 3, 2)
     t = one(v2db, "SELECT * FROM v_player_threat WHERE season=? AND player_id=10 AND as_of_gw=7", CUR)
-    assert t["defcon_rate"] == pytest.approx(0.5)
+    # shrunk toward the DEF average (5 hits in 12 apps): (3 + 3 x 5/12) / (6 + 3)
+    rate = (3 + 3 * 5 / 12) / 9
+    assert t["defcon_rate"] == pytest.approx(rate)
     assert one(v2db, "SELECT defcon_ratio FROM v_opp_weakness WHERE season=? AND team_id=2 "
                      "AND position='DEF' AND as_of_gw=7", CUR)[0] == pytest.approx(1.2)
-    assert defcon(v2db) == pytest.approx(0.6)
+    assert defcon(v2db) == pytest.approx(rate * 1.2)
+
+
+def test_defcon_few_apps_shrunk(v2db):
+    add_player(v2db, 10, "DEF", 1)
+    add_player(v2db, 11, "DEF", 2)
+    for gw in range(1, 7):
+        add_stat_row(v2db, gw, 11, 2, hits=1 if gw <= 2 else 0)        # 2 hits in 6 apps
+    for gw in (5, 6):
+        add_stat_row(v2db, gw, 10, 1, hits=1)                          # 2 hits in 2 apps
+    add_player(v2db, 12, "DEF", 1)                                     # team 1's other games
+    for gw in range(1, 5):
+        add_stat_row(v2db, gw, 12, 1)
+    refresh(v2db)
+    rate = one(v2db, "SELECT defcon_rate FROM v_player_threat WHERE season=? AND player_id=10 "
+                     "AND as_of_gw=7", CUR)["defcon_rate"]
+    assert rate == pytest.approx((2 + 3 * 4 / 12) / 5)                 # 0.6, not 1.0
+    assert defcon(v2db) == pytest.approx(0.6)                          # opponent ratio 1.0
+
+
+def test_opp_ratio_clamped(v2db):
+    # four teams; only team 2 concedes MID points -> 10 v league mean 2.5 = 4.0 -> clamp 2.0;
+    # team 1 concedes none -> 0 -> clamp 0.5
+    add_player(v2db, 1, "MID", 1)
+    add_player(v2db, 2, "MID", 2)
+    add_stat_row(v2db, 3, 1, 1, pts=10)
+    add_stat_row(v2db, 3, 2, 2, pts=0)
+    _insert(v2db, "fixture", [{"season": CUR, "fixture_id": 203, "gw": 3, "team_h": 3, "team_a": 4,
+                               "team_h_difficulty": 3, "team_a_difficulty": 3, "finished": 1}])
+    for pid, team, home in ((3, 3, 1), (4, 4, 0)):
+        add_player(v2db, pid, "MID", team)
+        _insert(v2db, "player_gw", [{"season": CUR, "gw": 3, "player_id": pid, "fixture_id": 203,
+                                     "minutes": 90, "total_points": 0, "was_home": home,
+                                     "opponent_team": 4 if team == 3 else 3, "fdr": 3,
+                                     "ep_pre": None}])
+    refresh(v2db)
+    ratio = lambda team: one(v2db, "SELECT pts_ratio FROM v_opp_weakness WHERE season=? AND "
+                                   "team_id=? AND position='MID' AND as_of_gw=5", CUR, team)[0]
+    assert ratio(2) == 2.0 and ratio(1) == 0.5
+
+
+def test_opp_ratio_tiny_league_average_is_neutral(v2db):
+    add_player(v2db, 1, "MID", 1)
+    add_player(v2db, 2, "MID", 2)
+    for gw in (3, 4):
+        add_stat_row(v2db, gw, 1, 1, xg=0.02)       # league mean xG conceded 0.01 a match < 0.05
+        add_stat_row(v2db, gw, 2, 2, xg=0.0)
+    refresh(v2db)
+    r = one(v2db, "SELECT xg_ratio FROM v_opp_weakness WHERE season=? AND team_id=2 AND "
+                  "position='MID' AND as_of_gw=5", CUR)
+    assert r[0] == 1.0                               # unguarded this would be 2.0
 
 
 def test_defcon_chance_capped(v2db):

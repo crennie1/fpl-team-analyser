@@ -24,7 +24,10 @@
 --  opp_xg_ratio  How leaky the opponent is to this position: xG that the opponent conceded
 --                per match to players of his position, divided by the league average.
 --                2.0 means "gives up twice the usual", 1.0 means average (also used when
---                there is no data yet).
+--                there is no data yet). Ratios are clamped to [0.5, 2.0] so one freak match
+--                cannot swing a forecast, and are set to 1.0 when the league average for
+--                that position is under 0.05 a match (too rare to compare, e.g. FWD DefCon
+--                or GK xG), because dividing by a near-zero average gives huge ratios (V4).
 --  calib_att     A single fitted scale factor per position (table model_param, fitted on
 --                fit_season by the backtest). 1.0 when there is no row.
 --  cs_chance     Probability his team keeps a clean sheet. We model goals conceded as a
@@ -32,9 +35,11 @@
 --                λ = own team's xG conceded per match (last 6) × opponent attack ratio
 --                (opponent xG for per match ÷ league average).
 --  defcon_chance Probability he reaches the DefCon threshold (DEF 10+, MID/FWD 12+ defensive
---                actions): his hit rate (hits ÷ appearances, last 6) × how many hits the
---                opponent concedes to his position relative to the league (defcon_ratio),
---                capped at 0.95. GKs have no DefCon (0). It is 0 whenever the data has no
+--                actions): his hit rate (last 6) × how many hits the opponent concedes to his
+--                position relative to the league (defcon_ratio), capped at 0.95. The hit
+--                rate is shrunk toward the position average, as if he had 3 extra
+--                appearances at that average: (hits + 3 × avg rate) ÷ (apps + 3), so one
+--                or two lucky games cannot read as near-certain (ruling V3). GKs have no DefCon (0). It is 0 whenever the data has no
 --                DefCon fields (the 2024-25 season). Not fitted: it has no parameters.
 --
 -- Rules shared by every window below:
@@ -206,16 +211,21 @@ joined AS (
           AND c.as_of_gw = g.as_of_gw AND c.position = p.position
 )
 SELECT season, team_id, as_of_gw, position,
-       COALESCE(pts_pm / NULLIF(AVG(pts_pm) OVER lg, 0), 1.0) AS pts_ratio,
-       COALESCE(xg_pm / NULLIF(AVG(xg_pm) OVER lg, 0), 1.0) AS xg_ratio,
-       COALESCE(defcon_pm / NULLIF(AVG(defcon_pm) OVER lg, 0), 1.0) AS defcon_ratio
+       -- ratio = team / league, but 1.0 if the league average is under 0.05 a match, else
+       -- clamped to [0.5, 2.0] (ruling V4)
+       COALESCE(MAX(0.5, MIN(2.0, pts_pm / CASE WHEN AVG(pts_pm) OVER lg >= 0.05
+                                               THEN AVG(pts_pm) OVER lg END)), 1.0) AS pts_ratio,
+       COALESCE(MAX(0.5, MIN(2.0, xg_pm / CASE WHEN AVG(xg_pm) OVER lg >= 0.05
+                                              THEN AVG(xg_pm) OVER lg END)), 1.0) AS xg_ratio,
+       COALESCE(MAX(0.5, MIN(2.0, defcon_pm / CASE WHEN AVG(defcon_pm) OVER lg >= 0.05
+                                                  THEN AVG(defcon_pm) OVER lg END)), 1.0) AS defcon_ratio
 FROM joined
 WINDOW lg AS (PARTITION BY season, as_of_gw, position);   -- the league, for that position
 
 
 -- Each player's underlying numbers, last 6 loaded gameweeks before as_of_gw.
 --   xg90, xa90   per 90 minutes; position average if under 180 minutes in the window
---   defcon_rate  DefCon hits / appearances; NULL for a GK, with no appearances, or no data
+--   defcon_rate  DefCon hit rate shrunk toward the position average (V3); NULL for a GK, with no appearances, or no data
 --   team_xgc_pm  xG his (current) team concedes per match
 CREATE VIEW v_player_threat AS
 WITH window_totals AS (
@@ -236,7 +246,8 @@ WITH window_totals AS (
 with_position_avg AS (   -- position-average rates, the fallback for little game time
     SELECT w.*,
            90.0 * SUM(xg) OVER pos / NULLIF(SUM(minutes) OVER pos, 0) AS pos_xg90,
-           90.0 * SUM(xa) OVER pos / NULLIF(SUM(minutes) OVER pos, 0) AS pos_xa90
+           90.0 * SUM(xa) OVER pos / NULLIF(SUM(minutes) OVER pos, 0) AS pos_xa90,
+           SUM(hits) OVER pos * 1.0 / NULLIF(SUM(apps) OVER pos, 0) AS pos_defcon_rate
     FROM window_totals AS w
     WINDOW pos AS (PARTITION BY season, position, as_of_gw)
 )
@@ -244,7 +255,7 @@ SELECT w.season, w.player_id, w.as_of_gw,
        CASE WHEN w.minutes >= 180 THEN 90.0 * w.xg / w.minutes ELSE w.pos_xg90 END AS xg90,
        CASE WHEN w.minutes >= 180 THEN 90.0 * w.xa / w.minutes ELSE w.pos_xa90 END AS xa90,
        CASE WHEN w.position = 'GK' OR w.apps = 0 THEN NULL
-            ELSE w.hits * 1.0 / w.apps END AS defcon_rate,
+            ELSE (w.hits + 3 * w.pos_defcon_rate) / (w.apps + 3) END AS defcon_rate,
        tx.xgc_pm AS team_xgc_pm
 FROM with_position_avg AS w
 LEFT JOIN v_team_xg AS tx
