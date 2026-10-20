@@ -251,3 +251,27 @@ def test_app_names_player_missing_from_db(env, monkeypatch):
     assert not at.exception
     assert any(f"{USER + 15}" in w.value and "player data not loaded yet" in w.value
                for w in at.warning)
+
+
+def _footer(env, one, three):
+    env.execute("INSERT OR REPLACE INTO meta VALUES ('forecast_source_1gw', ?)", (one,))
+    env.execute("INSERT OR REPLACE INTO meta VALUES ('forecast_source_3gw', ?)", (three,))
+    env.commit()
+    return " ".join(c.value for c in run().caption)
+
+
+def test_app_footer_names_v1_model_source(env):
+    foot = _footer(env, "model", "model")
+    assert "this site's v1 model (next week) · this site's v1 model (3 weeks)" in foot
+    assert "scaled by fixtures" not in foot
+
+
+def test_app_footer_fpl_ep_three_weeks_is_scaled(env):
+    foot = _footer(env, "fpl_ep", "fpl_ep")
+    assert ("FPL's own predictions (next week) · "
+            "FPL's own predictions scaled by fixtures (3 weeks)") in foot
+
+
+def test_app_footer_v2_source(env):
+    foot = _footer(env, "model", "v2")
+    assert "this site's v1 model (next week) · this site's v2 model (3 weeks)" in foot

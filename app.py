@@ -145,7 +145,7 @@ def weakness_frame(rows):
 
 
 FORECAST_WORDS = {"fpl_ep": "FPL's own predictions",
-                  "model": "FPL's own predictions scaled by fixtures",
+                  "model": "this site's v1 model",
                   "v2": "this site's v2 model"}
 
 
@@ -153,8 +153,10 @@ def show_footer(meta):
     one = meta.get("forecast_source_1gw") or meta.get("forecast_source")
     three = meta.get("forecast_source_3gw") or one
     word = lambda k: FORECAST_WORDS.get(k, "unknown")   # noqa: E731
+    # the 3-week fpl_ep number is FPL's one-week prediction scaled by the fixtures (R20)
+    word3 = word(three) + (" scaled by fixtures" if three == "fpl_ep" else "")
     url = repo_url()
-    text = f"Forecast: {word(one)} (next week) · {word(three)} (3 weeks)"
+    text = f"Forecast: {word(one)} (next week) · {word3} (3 weeks)"
     forecast = f"[{text}]({url}/blob/main/reports/backtest.md)" if url else text
     st.caption(f"Data: official FPL API · last updated {meta.get('last_collected', 'unknown')} · "
                f"{forecast}")
