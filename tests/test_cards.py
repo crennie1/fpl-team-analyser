@@ -122,7 +122,24 @@ def test_weakness_rank(v2db):
     assert rows["T2"]["mid"] == pytest.approx(6.0) and rows["T2"]["rank"]["mid"] == 1
     assert rows["T1"]["mid"] == pytest.approx(2.0) and rows["T1"]["rank"]["mid"] == 2
     assert rows["T3"]["mid"] is None and rows["T3"]["rank"]["mid"] is None
-    assert set(rows["T1"]) == {"team_id", "team", "short", "gk", "def", "mid", "fwd", "rank"}
+    assert set(rows["T1"]) == {"team_id", "team", "short", "gk", "def", "mid", "fwd", "rank",
+                               "xg", "xg_rank"}
+
+
+def test_weakness_xg_conceded_per_position(v2db):
+    """xG conceded per match to each position (v_team_conceded.xg_pm), ranked like points."""
+    setup_league(v2db)
+    add(v2db, 1, "MID", 1)
+    add(v2db, 2, "MID", 2)
+    add_stat_row(v2db, 3, 1, 1, xg=0.8)     # team 1's MID creates 0.8 + 0.4 against team 2
+    add_stat_row(v2db, 4, 1, 1, xg=0.4)
+    add_stat_row(v2db, 3, 2, 2, xg=0.1)     # team 2's MID creates 0.1 + 0.1 against team 1
+    add_stat_row(v2db, 4, 2, 2, xg=0.1)
+    refresh(v2db)
+    rows = {r["short"]: r for r in weakness_table(v2db)}
+    assert rows["T2"]["xg"]["mid"] == pytest.approx(0.6) and rows["T2"]["xg_rank"]["mid"] == 1
+    assert rows["T1"]["xg"]["mid"] == pytest.approx(0.1) and rows["T1"]["xg_rank"]["mid"] == 2
+    assert rows["T3"]["xg"]["mid"] is None and rows["T3"]["xg_rank"]["mid"] is None
 
 
 def test_weakness_sentence(v2db):

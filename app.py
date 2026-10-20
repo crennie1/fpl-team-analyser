@@ -132,13 +132,16 @@ def team_view_html(payload: dict) -> str:
 
 
 def weakness_frame(rows):
-    """Styled dataframe: positions as columns, 1 dp, the leakiest team per position highlighted."""
+    """Styled dataframe: points conceded per match to each position, then xG conceded per
+    match to it ("GK xG" ...), 1 dp, the leakiest team in each column highlighted."""
     cols = {"gk": "GK", "def": "DEF", "mid": "MID", "fwd": "FWD"}
-    df = pd.DataFrame([{"Team": r["team"], **{lbl: r[k] for k, lbl in cols.items()}} for r in rows])
-    ranks = pd.DataFrame([{"Team": r["team"], **{lbl: r["rank"][k] for k, lbl in cols.items()}}
-                          for r in rows])
-    df = df.set_index("Team")
-    ranks = ranks.set_index("Team")
+
+    def frame(get):
+        return pd.DataFrame([{"Team": r["team"], **{lbl: get(r, k) for k, lbl in cols.items()},
+                              **{f"{lbl} xG": get(r, k, True) for k, lbl in cols.items()}}
+                             for r in rows]).set_index("Team")
+    df = frame(lambda r, k, xg=False: r["xg"][k] if xg else r[k])
+    ranks = frame(lambda r, k, xg=False: r["xg_rank"][k] if xg else r["rank"][k])
     return df.style.format("{:.1f}", na_rep="–").apply(
         lambda _: ranks.map(lambda v: "background-color:#ff5c7a;color:#0b1020;font-weight:700"
                             if v == 1 else ""), axis=None)
@@ -227,7 +230,8 @@ def main():
             else:
                 render_team(conn, team, fresh)
         with weak_tab:
-            st.caption("Points conceded per match to each position over the last 6 gameweeks. "
+            st.caption("Points conceded per match to each position over the last 6 gameweeks, "
+                       "then the xG (expected goals) conceded per match to that position. "
                        "The leakiest team in each column is highlighted.")
             st.dataframe(weakness_frame(session_weakness()), width="stretch",
                          height=740)

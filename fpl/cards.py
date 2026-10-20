@@ -32,37 +32,43 @@ def _initials(first, web_name):
 
 
 def _ranks(conn, season, next_gw):
-    """{(position, team_id): (pts_pm, rank)}; rank 1 = concedes the most points per match."""
+    """{(position, team_id): {"pts_pm": (value, rank), "xg_pm": (value, rank)}} from
+    v_team_conceded in one query; rank 1 = concedes the most per match."""
     by_pos = {}
     for r in conn.execute(
-            "SELECT team_id, position, pts_pm FROM v_team_conceded "
+            "SELECT team_id, position, pts_pm, xg_pm FROM v_team_conceded "
             "WHERE season = ? AND as_of_gw = ?", (season, next_gw)):
-        by_pos.setdefault(r["position"], []).append((r["team_id"], r["pts_pm"]))
+        by_pos.setdefault(r["position"], []).append(r)
     out = {}
     for pos, rows in by_pos.items():
-        for team_id, pts in rows:
-            rank = None if pts is None else 1 + sum(
-                1 for _, o in rows if o is not None and o > pts)
-            out[(pos, team_id)] = (pts, rank)
+        for r in rows:
+            for col in ("pts_pm", "xg_pm"):
+                val = r[col]
+                rank = None if val is None else 1 + sum(
+                    1 for o in rows if o[col] is not None and o[col] > val)
+                out.setdefault((pos, r["team_id"]), {})[col] = (val, rank)
     return out
 
 
 def weakness_table(conn) -> list[dict]:
-    """One row per team: {team_id, team, short, gk, def, mid, fwd, rank: {gk, def, mid, fwd}}.
+    """One row per team: {team_id, team, short, gk, def, mid, fwd, rank: {gk, ...},
+    xg: {gk, ...}, xg_rank: {gk, ...}}.
 
     gk/def/mid/fwd are points conceded per match to that position over the last
-    6 loaded gameweeks; rank 1 = leakiest of the league.
+    6 loaded gameweeks, xg the xG conceded per match to it; rank 1 = leakiest of the league.
     """
-    season, next_gw = _meta(conn, "current_season"), _meta(conn, "next_gw")
-    ranks = _ranks(conn, season, int(next_gw))
+    season, next_gw = _meta(conn, "current_season"), int(_meta(conn, "next_gw"))
+    ranks = _ranks(conn, season, next_gw)
+    none = {"pts_pm": (None, None), "xg_pm": (None, None)}
     rows = []
     for t in conn.execute("SELECT team_id, name, short_name FROM team WHERE season = ? "
                           "ORDER BY name", (season,)):
-        row = {"team_id": t["team_id"], "team": t["name"], "short": t["short_name"], "rank": {}}
+        row = {"team_id": t["team_id"], "team": t["name"], "short": t["short_name"],
+               "rank": {}, "xg": {}, "xg_rank": {}}
         for pos, key in WEAK_KEY.items():
-            pts, rank = ranks.get((pos, t["team_id"]), (None, None))
-            row[key] = pts
-            row["rank"][key] = rank
+            r = ranks.get((pos, t["team_id"]), none)
+            row[key], row["rank"][key] = r["pts_pm"]
+            row["xg"][key], row["xg_rank"][key] = r["xg_pm"]
         rows.append(row)
     return rows
 

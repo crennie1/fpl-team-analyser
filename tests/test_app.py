@@ -121,7 +121,7 @@ def test_app_weakness_tab(env):
     at = run()
     assert at.tabs[1].label == "Opponent weaknesses"
     df = at.dataframe[0].value
-    assert list(df.columns) == ["GK", "DEF", "MID", "FWD"]
+    assert list(df.columns) == ["GK", "DEF", "MID", "FWD", "GK xG", "DEF xG", "MID xG", "FWD xG"]
     assert len(df) == 8                                      # the sample's teams
     assert "weakness" not in payload(at)                     # the component never read it
 
@@ -275,3 +275,23 @@ def test_app_footer_fpl_ep_three_weeks_is_scaled(env):
 def test_app_footer_v2_source(env):
     foot = _footer(env, "model", "v2")
     assert "this site's v1 model (next week) · this site's v2 model (3 weeks)" in foot
+
+
+def test_weakness_frame_xg_columns_1dp_and_leakiest_highlighted():
+    from app import weakness_frame
+    rows = [{"team": "A", "gk": 1.0, "def": 2.0, "mid": 3.0, "fwd": 4.0,
+             "rank": {"gk": 1, "def": 2, "mid": 1, "fwd": 2},
+             "xg": {"gk": 0.0, "def": 0.12, "mid": 0.55, "fwd": 0.9},
+             "xg_rank": {"gk": 1, "def": 1, "mid": 2, "fwd": 2}},
+            {"team": "B", "gk": 0.5, "def": 3.0, "mid": 2.0, "fwd": 5.0,
+             "rank": {"gk": 2, "def": 1, "mid": 2, "fwd": 1},
+             "xg": {"gk": None, "def": 0.04, "mid": 0.81, "fwd": 1.26},
+             "xg_rank": {"gk": None, "def": 2, "mid": 1, "fwd": 1}}]
+    sty = weakness_frame(rows)
+    html = sty.to_html()
+    assert ">0.1<" in html and ">0.8<" in html and ">1.3<" in html and ">–<" in html
+    sty._compute()
+    cols = list(sty.data.columns)
+    lit = {(sty.data.index[r], cols[c]) for (r, c), css in sty.ctx.items() if css}
+    assert lit == {("A", "GK"), ("B", "DEF"), ("A", "MID"), ("B", "FWD"),
+                   ("A", "GK xG"), ("A", "DEF xG"), ("B", "MID xG"), ("B", "FWD xG")}
