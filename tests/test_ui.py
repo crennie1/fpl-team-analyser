@@ -19,7 +19,7 @@ def payload(**card):
          "weakness": None, "set_pieces": None, "sell": None}
     c.update(card)
     return {"cards": [c], "grades": {"attack": "A"}, "projected": 61.5, "average": 53.5,
-            "kits": KITS, "weakness": []}
+            "kits": KITS}
 
 
 def data_of(html):

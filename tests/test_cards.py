@@ -85,7 +85,8 @@ def test_cards_new_player(v2db):
     add(v2db, 1, "DEF", 1, defcon=None)
     refresh(v2db)
     c = player_cards(v2db, analysis(view(1, "New", "DEF")), [])[0]
-    assert c["last6"] == {"form": None, "xg": None, "xa": None, "defcon_pct": None}
+    assert c["last6"] == {"form": None, "xg": None, "xa": None, "defcon_pct": None,
+                         "defcon_hits": None, "defcon_apps": None}
     assert c["bar_pct"] is None and c["set_pieces"] is None
 
 
@@ -121,7 +122,7 @@ def test_weakness_rank(v2db):
     assert rows["T2"]["mid"] == pytest.approx(6.0) and rows["T2"]["rank"]["mid"] == 1
     assert rows["T1"]["mid"] == pytest.approx(2.0) and rows["T1"]["rank"]["mid"] == 2
     assert rows["T3"]["mid"] is None and rows["T3"]["rank"]["mid"] is None
-    assert set(rows["T1"]) == {"team", "short", "gk", "def", "mid", "fwd", "rank"}
+    assert set(rows["T1"]) == {"team_id", "team", "short", "gk", "def", "mid", "fwd", "rank"}
 
 
 def test_weakness_sentence(v2db):
@@ -162,3 +163,56 @@ def test_cards_skip_player_missing_from_db(v2db):
     refresh(v2db)
     cards = player_cards(v2db, analysis(view(99, "Ghost", "MID"), view(1, "M", "MID")), [])
     assert [c["id"] for c in cards] == [1]
+
+
+def _squad15(conn):
+    """15 players (2 GK, 5 DEF, 5 MID, 3 FWD) on teams 1 and 2 with six gameweeks of stats."""
+    setup_league(conn)
+    views = []
+    for pid, pos in enumerate(["GK"] * 2 + ["DEF"] * 5 + ["MID"] * 5 + ["FWD"] * 3, start=1):
+        team = 1 + pid % 2
+        add(conn, pid, pos, team, "First", f"Last{pid}", f"P{pid}", defcon=0.3, cs=0.3)
+        for gw in range(1, 7):
+            add_stat_row(conn, gw, pid, team, pts=pid % 7, xg=0.1, xa=0.05, hits=gw % 2)
+        views.append(view(pid, f"P{pid}", pos, f"T{team}"))
+    refresh(conn)
+    return analysis(*views)
+
+
+def test_player_cards_fast_and_reads_no_heavy_view_per_card(v2db):
+    """Timing guard: one rerun's cards must not query the heavy v2 views once per card."""
+    import time
+    a = _squad15(v2db)
+    weak = weakness_table(v2db)
+    seen = []
+    v2db.set_trace_callback(seen.append)
+    t = time.perf_counter()
+    cards = player_cards(v2db, a, [], weakness=weak)
+    elapsed = time.perf_counter() - t
+    v2db.set_trace_callback(None)
+    assert len(cards) == 15
+    assert elapsed < 1.0
+    heavy = ("v_player_threat", "v_team_conceded", "v_team_gw", "v_pf_stat", "v_xp2")
+    assert not [s for s in seen if any(h in s for h in heavy)]
+
+
+def test_player_cards_weakness_from_passed_table_matches_own(v2db):
+    _weak_league(v2db)
+    a = analysis(view(1, "M", "MID"))
+    assert (player_cards(v2db, a, [], weakness=weakness_table(v2db))[0]["weakness"]
+            == player_cards(v2db, a, [])[0]["weakness"])
+
+
+def test_last6_defcon_is_raw_hit_rate(v2db):
+    """The panel's 'DefCon hits' bar is hits / appearances, not the V3-shrunk rate."""
+    setup_league(v2db)
+    add(v2db, 1, "DEF", 1, defcon=0.5)
+    add(v2db, 2, "DEF", 2)
+    for gw in range(1, 7):
+        add_stat_row(v2db, gw, 1, 1, hits=int(gw <= 4))       # 4 of 6
+        add_stat_row(v2db, gw, 2, 2, hits=0)                  # pulls the league average down
+    refresh(v2db)
+    c = player_cards(v2db, analysis(view(1, "D", "DEF")), [])[0]
+    assert (c["last6"]["defcon_hits"], c["last6"]["defcon_apps"]) == (4, 6)
+    assert c["last6"]["defcon_pct"] == 67
+    assert c["bar_pct"] == 50                                # the chance still comes from the cache

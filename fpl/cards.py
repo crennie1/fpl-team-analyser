@@ -48,7 +48,7 @@ def _ranks(conn, season, next_gw):
 
 
 def weakness_table(conn) -> list[dict]:
-    """One row per team: {team, short, gk, def, mid, fwd, rank: {gk, def, mid, fwd}}.
+    """One row per team: {team_id, team, short, gk, def, mid, fwd, rank: {gk, def, mid, fwd}}.
 
     gk/def/mid/fwd are points conceded per match to that position over the last
     6 loaded gameweeks; rank 1 = leakiest of the league.
@@ -58,13 +58,18 @@ def weakness_table(conn) -> list[dict]:
     rows = []
     for t in conn.execute("SELECT team_id, name, short_name FROM team WHERE season = ? "
                           "ORDER BY name", (season,)):
-        row = {"team": t["name"], "short": t["short_name"], "rank": {}}
+        row = {"team_id": t["team_id"], "team": t["name"], "short": t["short_name"], "rank": {}}
         for pos, key in WEAK_KEY.items():
             pts, rank = ranks.get((pos, t["team_id"]), (None, None))
             row[key] = pts
             row["rank"][key] = rank
         rows.append(row)
     return rows
+
+
+def _ranks_from(weakness):
+    """{(position, team_id): rank} from weakness_table rows."""
+    return {(pos, r["team_id"]): r["rank"][key] for r in weakness for pos, key in WEAK_KEY.items()}
 
 
 def _set_pieces(sp):
@@ -80,9 +85,15 @@ def _set_pieces(sp):
     return "; ".join(f"{ordinal(o)} choice {', '.join(groups[o])}" for o in sorted(groups))
 
 
-def player_cards(conn, analysis: Analysis, suggestions: list) -> list[dict]:
+def player_cards(conn, analysis: Analysis, suggestions: list, weakness=None) -> list[dict]:
+    """Card data for every analysed player.
+
+    `weakness` is weakness_table(conn) when the caller already has it (the app caches it
+    per database file); otherwise it is computed here. Nothing below reads the heavy v2
+    views per card, so one rerun stays fast.
+    """
     season, next_gw = _meta(conn, "current_season"), int(_meta(conn, "next_gw"))
-    ranks = _ranks(conn, season, next_gw)
+    ranks = _ranks_from(weakness if weakness is not None else weakness_table(conn))
     sells = {s.out_id: s for s in suggestions}
     last = conn.execute("SELECT last_gw FROM v_last_gw WHERE season = ? AND as_of_gw = ?",
                         (season, next_gw)).fetchone()
@@ -118,21 +129,21 @@ def _card(conn, pv, season, next_gw, last_gw, ranks, sug):
         "WHERE f.season = :s AND f.gw >= :g AND (f.team_h = :t OR f.team_a = :t) "
         "ORDER BY f.gw, f.fixture_id LIMIT 3", {"t": p["team_id"], "s": season, "g": next_gw})]
 
-    form = xg = xa = defcon = None
+    form = xg = xa = defcon = hits = apps = None
     if last_gw is not None:
         w = (season, pid, last_gw - 5, last_gw)
         g = conn.execute("SELECT COUNT(*) AS n, SUM(total_points) AS pts FROM player_gw "
                          "WHERE season=? AND player_id=? AND gw BETWEEN ? AND ? AND minutes > 0", w).fetchone()
         form = g["pts"] * 1.0 / g["n"] if g["n"] else None
-        st = conn.execute("SELECT COUNT(*) AS n, SUM(xg) AS xg, SUM(xa) AS xa FROM player_gw_stats "
+        st = conn.execute("SELECT COUNT(*) AS n, SUM(xg) AS xg, SUM(xa) AS xa, "
+                          "SUM(defcon_hits) AS hits, SUM(apps) AS apps FROM player_gw_stats "
                           "WHERE season=? AND player_id=? AND gw BETWEEN ? AND ?", w).fetchone()
         if st["n"]:
             xg, xa = st["xg"], st["xa"]
-    if not is_gk:
-        th = conn.execute("SELECT defcon_rate FROM v_player_threat WHERE season=? AND player_id=? "
-                          "AND as_of_gw=?", (season, pid, next_gw)).fetchone()
-        if th and th["defcon_rate"] is not None:
-            defcon = int(round(th["defcon_rate"] * 100))
+        # raw hit rate over his appearances (the chance itself uses the V3-shrunk rate)
+        if not is_gk and st["hits"] is not None and st["apps"]:
+            hits, apps = st["hits"], st["apps"]
+            defcon = int(round(100 * hits / apps))
 
     weakness = None
     if fixtures:
@@ -140,7 +151,7 @@ def _card(conn, pv, season, next_gw, last_gw, ranks, sug):
             "SELECT CASE WHEN team_h = ? THEN team_a ELSE team_h END AS opp_id FROM fixture "
             "WHERE season=? AND gw >= ? AND (team_h = ? OR team_a = ?) ORDER BY gw, fixture_id LIMIT 1",
             (p["team_id"], season, next_gw, p["team_id"], p["team_id"])).fetchone()
-        _, rank = ranks.get((pv.position, nxt["opp_id"]), (None, None))
+        rank = ranks.get((pv.position, nxt["opp_id"]))
         if rank is not None:
             weakness = (f"{fixtures[0]['opp']} concede the {ordinal(rank)}-most points to "
                         f"{POS_WORD[pv.position]} over the last 6 GWs")
@@ -172,7 +183,8 @@ def _card(conn, pv, season, next_gw, last_gw, ranks, sug):
         "bar_label": "Clean sheet" if is_gk else "DefCon",
         "bar_pct": None if chance is None else int(round(chance * 100)),
         "fixtures": fixtures,
-        "last6": {"form": form, "xg": xg, "xa": xa, "defcon_pct": defcon},
+        "last6": {"form": form, "xg": xg, "xa": xa, "defcon_pct": defcon,
+                  "defcon_hits": hits, "defcon_apps": apps},
         "weakness": weakness,
         "set_pieces": _set_pieces(sp),
         "sell": sell,

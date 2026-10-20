@@ -18,10 +18,9 @@ import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 
-from fpl import api, db
+from fpl import api, cards, db
 from fpl.analyse import analyse_squad
 from fpl.api import FplApiError
-from fpl.cards import player_cards, weakness_table
 from fpl.squad import SquadError, load_squad, swap
 from fpl.suggest import suggest
 from fpl.ui.kits import KITS
@@ -54,15 +53,37 @@ def _master_bytes(path: str, mtime: float) -> bytes:
         master.close()
 
 
-def open_session_db() -> sqlite3.Connection:
-    """A private writable in-memory copy for this script run."""
+def _session_from(path: str, mtime: float) -> sqlite3.Connection:
     conn = sqlite3.connect(":memory:", check_same_thread=False)
-    path = str(db_path())
-    conn.deserialize(_master_bytes(path, os.path.getmtime(path)))
+    conn.deserialize(_master_bytes(path, mtime))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     db.register_functions(conn)
     return conn
+
+
+def open_session_db() -> sqlite3.Connection:
+    """A private writable in-memory copy for this script run."""
+    path = str(db_path())
+    return _session_from(path, os.path.getmtime(path))
+
+
+@st.cache_data(show_spinner=False)
+def cached_weakness(path: str, mtime: float) -> list[dict]:
+    """weakness_table for one database file, computed once (about 0.4 s on the real data).
+
+    `mtime` is only a cache key: a refreshed data/fpl.db gets a new entry.
+    """
+    conn = _session_from(path, mtime)
+    try:
+        return cards.weakness_table(conn)
+    finally:
+        conn.close()
+
+
+def session_weakness() -> list[dict]:
+    path = str(db_path())
+    return cached_weakness(path, os.path.getmtime(path))
 
 
 @st.cache_data(ttl=600, show_spinner="Fetching your squad from FPL…")
@@ -206,7 +227,7 @@ def main():
         with weak_tab:
             st.caption("Points conceded per match to each position over the last 6 gameweeks. "
                        "The leakiest team in each column is highlighted.")
-            st.dataframe(weakness_frame(weakness_table(conn)), width="stretch",
+            st.dataframe(weakness_frame(session_weakness()), width="stretch",
                          height=740)
         show_footer(meta)
     finally:
@@ -245,10 +266,10 @@ def render_team(conn, team, fresh):
                    f"use{'' if edits > 1 else 's'} {edits} free transfer{'s' if edits > 1 else ''}, "
                    f"so these assume {ft_left} free transfer{'' if ft_left == 1 else 's'} left.")
     payload = {
-        "cards": player_cards(conn, analysis, suggestions),
+        "cards": cards.player_cards(conn, analysis, suggestions, weakness=session_weakness()),
         "grades": {label: analysis.grades.get(key, "–") for key, label in GRADE_ROWS},
         "projected": analysis.projected, "average": analysis.average_projected,
-        "kits": KITS, "weakness": weakness_table(conn)}
+        "kits": KITS}
     components.html(team_view_html(payload), height=VIEW_HEIGHT, scrolling=True)
     if not suggestions:
         st.write("No transfer clearly worth making this week.")

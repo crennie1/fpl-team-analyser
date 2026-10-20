@@ -122,7 +122,20 @@ def test_app_weakness_tab(env):
     assert at.tabs[1].label == "Opponent weaknesses"
     df = at.dataframe[0].value
     assert list(df.columns) == ["GK", "DEF", "MID", "FWD"]
-    assert len(df) == len(payload(at)["weakness"]) == 8      # the sample's teams
+    assert len(df) == 8                                      # the sample's teams
+    assert "weakness" not in payload(at)                     # the component never read it
+
+
+def test_app_weakness_table_computed_once_per_database(env, monkeypatch):
+    """The weakness table is cached per database file: one computation across reruns."""
+    from fpl import cards
+    calls = []
+    real = cards.weakness_table
+    monkeypatch.setattr(cards, "weakness_table", lambda conn: calls.append(1) or real(conn))
+    at = run()
+    at.run()
+    assert not at.exception
+    assert len(calls) == 1
 
 
 def test_app_api_down_message(env):
