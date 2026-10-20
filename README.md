@@ -25,7 +25,7 @@ Plain English first. Jargon is explained as it appears.
 - **Official FPL API** (`https://fantasy.premierleague.com/api/`): players, fixtures, prices, injury news, and what each player scored in each match. It is free and public.
 - **Past-season archive** (the public `vaastav/Fantasy-Premier-League` project on GitHub): last season's results, used to test the forecast honestly.
 - Everything is stored in one **SQLite** file, `data/fpl.db`. SQLite is a database that lives in a single file, so there is no server to run or pay for.
-- A **GitHub Action** (a scheduled job on GitHub, free) refreshes the data every day and saves the new file back to the repo.
+- A **GitHub Action** (a scheduled job on GitHub, free) refreshes the data every day. It saves the new file back to the repo only when a gameweek has finished, in the 48 hours before a deadline, or on Tuesdays (when the reference sample is refreshed), so the repo does not grow by a full copy of the database every day.
 - The app never shows fake or stale data quietly. If the FPL site is down it says so, and it warns if the data is over 36 hours old.
 
 ### 2. Forecast

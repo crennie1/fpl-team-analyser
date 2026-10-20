@@ -1,6 +1,6 @@
 """Collect the current season from the official FPL API into SQLite."""
 import argparse
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fpl import db
 from fpl.api import FplClient
@@ -10,6 +10,31 @@ POSITIONS = {1: "GK", 2: "DEF", 3: "MID", 4: "FWD"}
 
 def _now():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+COMMIT_WINDOW = timedelta(hours=48)
+REFERENCE_WEEKDAY = 1          # Tuesday (datetime.weekday: Monday = 0)
+
+
+def _utcnow():
+    return datetime.now(timezone.utc)
+
+
+def should_commit(new_gw: bool, next_deadline: str | None, now: datetime,
+                  manual: bool = False) -> bool:
+    """Should the daily workflow commit data/fpl.db? (ruling V8)
+
+    Yes when (a) a new gameweek was loaded, (b) the next gameweek's deadline is within
+    48 hours (keeps the last pre-deadline snapshot of FPL's predictions), or (c) it is the
+    Tuesday reference run (a manual run also refreshes the reference sample). Otherwise
+    the run changes nothing in git, so the repository does not grow by a full copy a day.
+    """
+    if new_gw or manual or now.weekday() == REFERENCE_WEEKDAY:
+        return True
+    if not next_deadline:
+        return False
+    deadline = datetime.fromisoformat(next_deadline.replace("Z", "+00:00"))
+    return timedelta(0) <= deadline - now <= COMMIT_WINDOW
 
 
 def _set_meta(conn, key, value):
@@ -154,7 +179,8 @@ def run(conn, client, season=None):
     season = season or season_from_bootstrap(boot)
     fixtures = client.fixtures()
     collected_at = _now()
-    next_gw = next((e["id"] for e in boot["events"] if e["is_next"]), None)
+    next_event = next((e for e in boot["events"] if e["is_next"]), None)
+    next_gw = next_event["id"] if next_event else None
 
     _upsert_static(conn, season, boot, fixtures)
     _snapshot(conn, season, boot, next_gw, collected_at)
@@ -172,6 +198,8 @@ def run(conn, client, season=None):
 
     if next_gw is not None:
         _set_meta(conn, "next_gw", next_gw)
+        if next_event.get("deadline_time"):
+            _set_meta(conn, "next_deadline", next_event["deadline_time"])
     _set_meta(conn, "last_collected", collected_at)
     _set_meta(conn, "current_season", season)
     conn.commit()
@@ -182,7 +210,18 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--db", default="data/fpl.db")
     p.add_argument("--season", help="e.g. 2026-27; default: derived from the FPL API")
+    p.add_argument("--should-commit", action="store_true",
+                   help="collect nothing; print true/false: should the workflow commit the db (V8)")
+    p.add_argument("--new-gw", action="store_true", help="with --should-commit: a new gameweek was loaded")
+    p.add_argument("--manual", action="store_true", help="with --should-commit: a manual run")
     args = p.parse_args(argv)
+    if args.should_commit:
+        conn = db.connect(args.db)
+        row = conn.execute("SELECT value FROM meta WHERE key = 'next_deadline'").fetchone()
+        conn.close()
+        ok = should_commit(args.new_gw, row[0] if row else None, _utcnow(), args.manual)
+        print("true" if ok else "false")
+        return
     from pathlib import Path
     Path(args.db).parent.mkdir(parents=True, exist_ok=True)
     conn = db.connect(args.db)

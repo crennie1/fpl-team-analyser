@@ -13,7 +13,7 @@ This folder is your workspace. Write your own SQL here, keep your notes here, an
 
 All the data is in one file: `data/fpl.db`. It is a SQLite database. It holds two past seasons (2024-25 and 2025-26), the current season (2026-27) and the forecast, built as SQL views.
 
-**Tip:** the refresh job changes this file every day. Work on a copy if you want to be safe, or open it read-only (see below).
+**Tip:** the refresh job can change this file (after a gameweek finishes, in the 48 hours before a deadline, and on Tuesdays). Work on a copy if you want to be safe, or open it read-only (see below).
 
 ## Open it in DB Browser for SQLite (free, with buttons)
 

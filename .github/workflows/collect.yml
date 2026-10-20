@@ -57,7 +57,20 @@ jobs:
         if: steps.collect.outputs.new_gw == 'true'
         run: python -m fpl.backtest --db data/fpl.db
 
+      # Ruling V8: commit only on a new gameweek, within 48 h of the next deadline, or on
+      # the Tuesday reference run (or a manual run); otherwise nothing changes in git.
+      - name: Decide whether to commit
+        id: gate
+        run: |
+          flags=""
+          if [ "${{ steps.collect.outputs.new_gw }}" = "true" ]; then flags="$flags --new-gw"; fi
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then flags="$flags --manual"; fi
+          commit=$(python -m fpl.collect --db data/fpl.db --should-commit $flags)
+          echo "commit=$commit"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+
       - name: Commit changes
+        if: steps.gate.outputs.commit == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

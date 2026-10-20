@@ -43,6 +43,7 @@ Keys in use:
 | `backtest_season` | The past season the forecasts are scored on (`2025-26`). |
 | `fit_season` | The earlier season fitted settings are learned from (`2024-25`). Removed if only one past season is loaded. |
 | `next_gw` | The upcoming gameweek number. |
+| `next_deadline` | Deadline of the upcoming gameweek (UTC, from FPL). The refresh job saves the database to the repo when this is less than 48 hours away. |
 | `last_collected` | When the data was last refreshed (UTC time). The app warns if this is over 36 hours old. |
 | `forecast_source` | Older single setting: which forecast the app shows, `fpl_ep` (FPL's own number) or `model` (ours). Used only if the two keys below are missing. Currently `fpl_ep`. |
 | `forecast_source_1gw` | Source for the next-gameweek number: `fpl_ep`, `v2` or `model`. Chosen by the 1-gameweek backtest. Currently `fpl_ep`. |

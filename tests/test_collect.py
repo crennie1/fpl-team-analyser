@@ -188,3 +188,52 @@ def test_collect_backfills_stats_for_old_gameweeks(tmp_db, fake_client):
     collect.run(tmp_db, fake_client, "2026-27")
     assert count(tmp_db, "player_gw_stats") == 6
     assert count(tmp_db, "player_gw") == 6
+
+
+def test_collect_stores_next_deadline(tmp_db, fake_client):
+    collect.run(tmp_db, fake_client, "2026-27")
+    v = tmp_db.execute("select value from meta where key='next_deadline'").fetchone()[0]
+    assert v == "2026-08-28T17:30:00Z"            # deadline of the is_next event
+
+
+def test_should_commit_rules_v8():
+    from datetime import datetime, timezone
+    dl = "2026-08-28T17:30:00Z"                    # a Friday
+    wed = datetime(2026, 8, 26, 6, 0, tzinfo=timezone.utc)      # 59.5 h before: no
+    thu = datetime(2026, 8, 27, 6, 0, tzinfo=timezone.utc)      # 35.5 h before: yes
+    tue = datetime(2026, 8, 25, 6, 0, tzinfo=timezone.utc)
+    assert not collect.should_commit(False, dl, wed)
+    assert collect.should_commit(True, dl, wed)                 # (a) new gameweek loaded
+    assert collect.should_commit(False, dl, thu)                # (b) deadline within 48 h
+    assert collect.should_commit(False, dl, tue)                # (c) Tuesday reference run
+    assert collect.should_commit(False, dl, wed, manual=True)   # manual run refreshes reference too
+    after = datetime(2026, 8, 28, 18, 0, tzinfo=timezone.utc)   # deadline passed
+    assert not collect.should_commit(False, dl, after)
+    assert not collect.should_commit(False, None, wed)          # end of season: no next deadline
+    assert collect.should_commit(False, dl, datetime(2026, 8, 26, 17, 30, tzinfo=timezone.utc))
+
+
+def test_should_commit_cli_reads_deadline_from_db(tmp_path, capsys, monkeypatch):
+    from datetime import datetime, timezone
+    path = tmp_path / "c.db"
+    conn = db.connect(path)
+    db.apply_sql(conn, "schema.sql")
+    conn.execute("INSERT INTO meta VALUES ('next_deadline', '2026-08-28T17:30:00Z')")
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(collect, "_utcnow", lambda: datetime(2026, 8, 27, 6, tzinfo=timezone.utc))
+    collect.main(["--db", str(path), "--should-commit"])
+    assert capsys.readouterr().out.strip() == "true"
+    monkeypatch.setattr(collect, "_utcnow", lambda: datetime(2026, 8, 26, 6, tzinfo=timezone.utc))
+    collect.main(["--db", str(path), "--should-commit"])
+    assert capsys.readouterr().out.strip() == "false"
+    collect.main(["--db", str(path), "--should-commit", "--new-gw"])
+    assert capsys.readouterr().out.strip() == "true"
+
+
+def test_workflow_commits_only_when_should_commit():
+    from pathlib import Path
+    wf = (Path(__file__).parent.parent / ".github" / "workflows" / "collect.yml").read_text()
+    assert "--should-commit" in wf
+    commit = wf.split("- name: Commit changes")[1]
+    assert "steps.gate.outputs.commit == 'true'" in commit
