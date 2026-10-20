@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Team view styles</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#111;color:#eee}
+.top{padding:14px 20px;background:#1b1b1b;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.top h1{font-size:16px;margin:0 16px 0 0;font-weight:600}
+.tab{padding:8px 14px;border-radius:8px;border:1px solid #444;background:#222;color:#ddd;cursor:pointer;font-size:14px}
+.tab.on{background:#fff;color:#111;border-color:#fff}
+.hint{font-size:13px;color:#999;margin-left:auto}
+.wrap{display:flex;gap:18px;padding:18px;min-height:calc(100vh - 60px);flex-wrap:wrap}
+.pitch{flex:2;min-width:330px;border-radius:14px;padding:18px 10px;position:relative}
+.row{display:flex;justify-content:center;gap:10px;margin:14px 0;flex-wrap:wrap}
+.panel{flex:1;min-width:280px;max-width:380px;border-radius:14px;padding:18px}
+.p{cursor:pointer;transition:transform .12s}.p:hover{transform:translateY(-3px)}
+.p.sel{outline:3px solid #ffd400;outline-offset:3px}
+.bench{border-top:1px dashed rgba(255,255,255,.35);margin-top:18px;padding-top:6px}
+.bench .lbl{text-align:center;font-size:11px;letter-spacing:.12em;opacity:.7}
+/* ---------- A Matchday ---------- */
+.A .pitch{background:repeating-linear-gradient(180deg,#2f8f3a 0 48px,#2a8234 48px 96px);border:3px solid #e9f5e9;box-shadow:inset 0 0 0 2px rgba(255,255,255,.25)}
+.A .pitch:before{content:"";position:absolute;left:25%;right:25%;top:-3px;height:70px;border:2px solid rgba(255,255,255,.55);border-top:none}
+.A .pitch:after{content:"";position:absolute;left:50%;top:46%;width:110px;height:110px;margin-left:-55px;border:2px solid rgba(255,255,255,.45);border-radius:50%}
+.A .p{width:92px;text-align:center;position:relative;z-index:1}
+.A .shirt{width:54px;height:54px;margin:0 auto -4px}
+.A .nm{background:#fff;color:#111;font-size:12px;font-weight:600;padding:3px 4px;border-radius:4px 4px 0 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.A .xp{background:#37003c;color:#fff;font-size:12px;padding:2px 4px;border-radius:0 0 4px 4px}
+.A .xp.g{background:#00a86b}.A .xp.r{background:#e0004d}
+.A .badge{position:absolute;top:-4px;right:12px;background:#111;color:#fff;font-size:10px;font-weight:700;border-radius:50%;width:18px;height:18px;line-height:18px}
+.A .flag{position:absolute;top:-4px;left:12px;background:#ffb000;color:#111;font-size:11px;font-weight:700;border-radius:50%;width:18px;height:18px;line-height:18px}
+.A .panel{background:#fff;color:#1a1a1a}
+/* ---------- B Cards ---------- */
+.B{background:#0b1020}.B .pitch{background:radial-gradient(ellipse at center,#14264a 0%,#0b1530 70%);border:1px solid #23345e}
+.B .p{width:96px;background:linear-gradient(160deg,#1d2b52,#121b36);border:1px solid #2c3f73;border-radius:12px;padding:8px 6px;text-align:center}
+.B .av{width:40px;height:40px;border-radius:50%;margin:0 auto 4px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#fff}
+.B .nm{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.B .xp{font-size:20px;font-weight:800;margin-top:2px}
+.B .xp small{font-size:10px;font-weight:500;opacity:.6}
+.B .bar{height:4px;border-radius:2px;background:#2a3a66;margin-top:5px;overflow:hidden}.B .bar i{display:block;height:100%;background:#38d39f}
+.B .pos{font-size:9px;letter-spacing:.1em;opacity:.6}
+.B .panel{background:rgba(25,38,75,.9);border:1px solid #2c3f73;color:#e8ecff}
+/* ---------- C Clean ---------- */
+.C{background:#f4f5f7;color:#1c1c1c}.C .top{background:#fff;color:#111}.C .tab{background:#fff;color:#333;border-color:#ccc}.C .tab.on{background:#111;color:#fff}
+.C .pitch{background:#fff;border:1px solid #e3e5e8}
+.C .pitch:before{content:"";position:absolute;inset:14px;border:1.5px solid #e5e7eb;border-radius:8px;pointer-events:none}
+.C .p{width:84px;text-align:center;position:relative}
+.C .dot{width:46px;height:46px;border-radius:50%;margin:0 auto 4px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;border:3px solid}
+.C .nm{font-size:12px;font-weight:600}.C .sub{font-size:11px;color:#777}
+.C .bench{border-color:#ddd}.C .panel{background:#fff;border:1px solid #e3e5e8}
+/* panel shared */
+.panel h2{margin:0;font-size:20px}.panel .meta{font-size:13px;opacity:.7;margin:2px 0 14px}
+.kp{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px}
+.kp div{border-radius:10px;padding:8px;text-align:center;background:rgba(127,127,127,.12)}
+.kp b{display:block;font-size:18px}.kp span{font-size:11px;opacity:.7}
+.sec{font-size:11px;letter-spacing:.1em;text-transform:uppercase;opacity:.6;margin:12px 0 6px}
+.fx{display:flex;gap:6px}.fx div{flex:1;border-radius:6px;padding:6px 2px;text-align:center;font-size:12px;font-weight:600;color:#111}
+.d2{background:#01fc7a}.d3{background:#e7e7e7}.d4{background:#ff1751;color:#fff!important}.d5{background:#80072d;color:#fff!important}
+.sb{display:flex;align-items:center;gap:8px;font-size:13px;margin:5px 0}.sb .t{width:96px}.sb .b{flex:1;height:8px;border-radius:4px;background:rgba(127,127,127,.2);overflow:hidden}.sb .b i{display:block;height:100%;background:#7b5cff}.sb .v{width:44px;text-align:right}
+.note{font-size:12px;opacity:.7;margin-top:12px;line-height:1.4}
+@media(max-width:760px){.panel{max-width:none}}
+</style></head>
+<body>
+<div class="top"><h1>Pick a team-view style</h1>
+<button class="tab" data-s="A" onclick="setS('A')">A · Matchday shirts</button>
+<button class="tab on" data-s="B" onclick="setS('B')">B · Dark player cards</button>
+<button class="tab" data-s="C" onclick="setS('C')">C · Clean & light</button>
+<span class="hint">Click any player → stats appear on the right. Players picked by hand, numbers made up — not real data.</span></div>
+<div id="root" class="B"><div class="wrap"><div class="pitch" id="pitch"></div><div class="panel" id="panel"></div></div></div>
+<script>
+const T={MCI:['#6CABDD','#fff'],ARS:['#EF0107','#fff'],LIV:['#C8102E','#fff'],CHE:['#034694','#fff'],AVL:['#670E36','#95BFE5'],NEW:['#241F20','#fff'],BOU:['#DA291C','#000'],BHA:['#0057B8','#fff'],TOT:['#fff','#132257'],FUL:['#fff','#000']};
+const P=[
+{n:'Raya',fn:'David Raya',c:'ARS',pos:'GK',xp:4.0,x3:12.1,f:5.2,xg:0,xa:0,dc:0,pr:5.6,own:31,fx:[['bur',2],['MUN',3],['liv',4]]},
+{n:'Gabriel',fn:'Gabriel Magalhães',c:'ARS',pos:'DEF',xp:5.1,x3:15.4,f:6.0,xg:.9,xa:.3,dc:58,pr:6.4,own:44,fx:[['bur',2],['MUN',3],['liv',4]]},
+{n:'Gvardiol',fn:'Joško Gvardiol',c:'MCI',pos:'DEF',xp:4.9,x3:14.0,f:4.8,xg:.6,xa:.8,dc:64,pr:6.1,own:22,fx:[['FUL',2],['tot',4],['BHA',3]]},
+{n:'Robinson',fn:'Antonee Robinson',c:'FUL',pos:'DEF',xp:2.3,x3:7.2,f:2.1,xg:.1,xa:.9,dc:41,pr:4.9,own:9,fx:[['mci',5],['ARS',4],['che',4]],flag:0},
+{n:'Salah',fn:'Mohamed Salah',c:'LIV',pos:'MID',xp:7.8,x3:22.9,f:8.4,xg:3.9,xa:2.1,dc:12,pr:13.4,own:61,fx:[['WHU',2],['bou',3],['ARS',4]]},
+{n:'Saka',fn:'Bukayo Saka',c:'ARS',pos:'MID',xp:6.4,x3:19.0,f:6.9,xg:2.4,xa:2.6,dc:9,pr:10.1,own:38,fx:[['bur',2],['MUN',3],['liv',4]]},
+{n:'Semenyo',fn:'Antoine Semenyo',c:'BOU',pos:'MID',xp:0.0,x3:0.0,f:5.5,xg:2.8,xa:1.1,dc:22,pr:7.6,own:27,fx:[['LEE',2],['LIV',3],['ful',3]],flag:'Injured – 8 weeks'},
+{n:'Rogers',fn:'Morgan Rogers',c:'AVL',pos:'MID',xp:5.3,x3:15.9,f:5.0,xg:1.6,xa:1.7,dc:31,pr:7.0,own:18,fx:[['bha',3],['EVE',2],['new',4]]},
+{n:'Haaland',fn:'Erling Haaland',c:'MCI',pos:'FWD',xp:9.1,x3:24.6,f:9.0,xg:6.1,xa:.7,dc:3,pr:14.5,own:72,fx:[['FUL',2],['tot',4],['BHA',3]],cap:1},
+{n:'João Pedro',fn:'João Pedro Junqueira',c:'CHE',pos:'FWD',xp:5.5,x3:16.2,f:6.2,xg:3.0,xa:1.0,dc:6,pr:7.7,own:24,fx:[['NFO',2],['wol',2],['FUL',3]]},
+{n:'Watkins',fn:'Ollie Watkins',c:'AVL',pos:'FWD',xp:4.2,x3:13.1,f:3.8,xg:2.2,xa:.6,dc:5,pr:8.8,own:12,fx:[['bha',3],['EVE',2],['new',4]]}];
+const B=[{n:'Verbruggen',fn:'Bart Verbruggen',c:'BHA',pos:'GK',xp:1.0,x3:3.2,f:2,xg:0,xa:0,dc:0,pr:4.5,own:3,fx:[['AVL',3],['ful',3],['mci',4]]},
+{n:'Kerkez',fn:'Milos Kerkez',c:'LIV',pos:'DEF',xp:3.1,x3:10.0,f:3.4,xg:.2,xa:.7,dc:47,pr:5.9,own:15,fx:[['WHU',2],['bou',3],['ARS',4]]},
+{n:'Wissa',fn:'Yoane Wissa',c:'NEW',pos:'FWD',xp:2.7,x3:8.9,f:3,xg:1.3,xa:.4,dc:4,pr:6.4,own:6,fx:[['tot',4],['WOL',2],['AVL',3]]},
+{n:'Andersen',fn:'Joachim Andersen',c:'FUL',pos:'DEF',xp:2.0,x3:6.4,f:2.2,xg:.1,xa:.1,dc:71,pr:4.4,own:5,fx:[['mci',5],['ARS',4],['che',4]]}];
+let S='B',sel=P[8];
+const ini=p=>{const w=(p.fn||p.n).split(' ');return (w[0][0]+w[w.length-1][0]).toUpperCase()};
+const cls=x=>x>=5?'g':x<2.5?'r':'';
+function shirt(c){const[a,b]=T[c];return `<svg class="shirt" viewBox="0 0 60 60"><path d="M18 6 L8 12 L2 26 L12 30 L14 24 L14 56 L46 56 L46 24 L48 30 L58 26 L52 12 L42 6 Q30 14 18 6Z" fill="${a}" stroke="${b}" stroke-width="2.5"/><path d="M24 8 Q30 13 36 8" fill="none" stroke="${b}" stroke-width="2"/></svg>`}
+function card(p){const i=P.concat(B).indexOf(p),on=p===sel?' sel':'';
+ if(S==='A')return `<div class="p${on}" onclick="pick(${i})">${shirt(p.c)}${p.cap?'<span class="badge">C</span>':''}${p.flag?'<span class="flag">!</span>':''}<div class="nm">${p.n}</div><div class="xp ${cls(p.xp)}">${p.xp.toFixed(1)} pts</div></div>`;
+ if(S==='B'){const[a]=T[p.c];return `<div class="p${on}" onclick="pick(${i})"><div class="pos">${p.pos}${p.cap?' · C':''}${p.flag?' · ⚠':''}</div><div class="av" style="background:${a==='#fff'?'#555':a}">${ini(p)}</div><div class="nm">${p.n}</div><div class="xp" style="color:${p.xp>=5?'#38d39f':p.xp<2.5?'#ff5c7a':'#fff'}">${p.xp.toFixed(1)}<small> xP</small></div><div class="bar" title="DefCon chance: how likely he earns the 2 defensive-contribution points"><i style="width:${p.dc}%"></i></div><div class="pos" style="margin-top:3px">DefCon ${p.dc}%</div></div>`}
+ const col=p.xp>=5?'#16a34a':p.xp<2.5?'#dc2626':'#d97706';
+ return `<div class="p${on}" onclick="pick(${i})"><div class="dot" style="border-color:${col};color:${col}">${p.xp.toFixed(1)}</div><div class="nm">${p.n}${p.cap?' ©':''}</div><div class="sub">${p.c} · ${p.fx[0][0].toUpperCase()}</div></div>`}
+function draw(){
+ const by=pos=>P.filter(p=>p.pos===pos).map(card).join('');
+ document.getElementById('pitch').innerHTML=['GK','DEF','MID','FWD'].reverse().map(x=>`<div class="row">${by(x)}</div>`).join('')+`<div class="bench"><div class="lbl">BENCH</div><div class="row">${B.map(card).join('')}</div></div>`;
+ const p=sel,sb=(t,v,m,s)=>`<div class="sb"><span class="t">${t}</span><span class="b"><i style="width:${Math.min(100,v/m*100)}%"></i></span><span class="v">${s}</span></div>`;
+ document.getElementById('panel').innerHTML=`<h2>${p.fn||p.n}${p.cap?' (C)':''}</h2><div class="meta">${p.pos} · ${p.c} · £${p.pr}m · ${p.own}% owned</div>
+ ${p.flag?`<div style="background:#ffb000;color:#111;border-radius:8px;padding:6px 10px;font-size:13px;margin-bottom:10px">⚠ ${p.flag}</div>`:''}
+ <div class="kp"><div><b>${p.xp.toFixed(1)}</b><span>xP next GW</span></div><div><b>${p.x3.toFixed(1)}</b><span>xP next 3</span></div><div><b>${p.dc}%</b><span>DefCon chance</span></div></div><div class="note" style="margin:-6px 0 10px"><b>DefCon chance</b> = how likely he earns FPL's 2 bonus points for defensive work this week. Defenders need 10+ clearances, blocks, interceptions and tackles in a match; midfielders and forwards need 12+, with ball recoveries also counting. Based on how often he hit it in his last 6 games, adjusted for the opponent.</div>
+ <div class="sec">Next fixtures</div><div class="fx">${p.fx.map(([t,d])=>`<div class="d${d}">${t.toUpperCase()}${t===t.toLowerCase()?' (A)':' (H)'}</div>`).join('')}</div>
+ <div class="sec">Last 6 gameweeks</div>${sb('Form (pts/gm)',p.f,10,p.f.toFixed(1))}${sb('xG',p.xg,7,p.xg.toFixed(1))}${sb('xA',p.xa,7,p.xa.toFixed(1))}${sb('DefCon hits',p.dc,100,p.dc+'%')}
+ <div class="sec">Opponent weakness</div><div class="note">${p.fx[0][0].toUpperCase()} concede the 3rd-most points to ${p.pos==='GK'?'goalkeepers':p.pos==='DEF'?'defenders':p.pos==='MID'?'midfielders':'forwards'} over the last 6 GWs.</div>
+ <div class="note">Set pieces: ${p.n==='Salah'||p.n==='Haaland'?'1st choice penalties':p.n==='Saka'?'Corners, 2nd penalties':'—'}</div>`}
+function pick(i){sel=P.concat(B)[i];draw()}
+function setS(s){S=s;document.getElementById('root').className=s;document.body.className=s;document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('on',t.dataset.s===s));draw()}
+document.body.className='B';draw();
+</script></body></html>

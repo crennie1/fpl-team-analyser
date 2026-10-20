@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Team view – dark cards v5</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#0b1020;color:#e8ecff}
+.note-top{padding:10px 18px;font-size:12px;color:#8e9bc4;border-bottom:1px solid #1c2747}
+.grades{display:flex;gap:8px;flex-wrap:wrap;align-items:stretch;padding:14px 18px 0}
+.g{background:#14203f;border:1px solid #23345e;border-radius:10px;padding:7px 12px;text-align:center;min-width:78px}
+.g b{display:block;font-size:20px}.g span{font-size:11px;color:#8e9bc4}
+.gA b{color:#38d39f}.gB b{color:#9be27a}.gC b{color:#ffd166}.gD b{color:#ff9f5a}.gE b{color:#ff5c7a}
+.proj{margin-left:auto;background:linear-gradient(135deg,#2a3f7a,#1a2850);border:1px solid #34509a;border-radius:10px;padding:7px 16px;text-align:right}
+.proj b{font-size:22px}.proj span{display:block;font-size:11px;color:#9fb0de}
+.wrap{display:flex;gap:18px;padding:14px 18px 18px;align-items:flex-start}
+.pitch{flex:2;min-width:0;border-radius:14px;padding:14px 8px;background:radial-gradient(ellipse at center,#14264a 0%,#0b1530 70%);border:1px solid #23345e}
+.row{display:flex;justify-content:center;gap:10px;margin:12px 0;flex-wrap:wrap}
+.p{width:100px;background:linear-gradient(160deg,#1d2b52,#121b36);border:1px solid #2c3f73;border-top:4px solid var(--club);border-radius:12px;padding:7px 6px 8px;text-align:center;cursor:pointer;position:relative;transition:transform .12s}
+.p:hover{transform:translateY(-3px)}
+.p.sel{box-shadow:0 0 0 3px #ffd400}
+.p.sell{border-color:#ff5c7a;border-top-color:var(--club);box-shadow:0 0 0 2px #ff5c7a}
+.p.sell.sel{box-shadow:0 0 0 2px #ff5c7a,0 0 0 5px #ffd400}
+.selltag{position:absolute;top:-11px;left:50%;transform:translateX(-50%);background:#ff5c7a;color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:9px;white-space:nowrap}
+.pos{font-size:9px;letter-spacing:.1em;color:#8e9bc4}
+.av{width:40px;height:40px;border-radius:50%;margin:3px auto 4px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#fff;border:2px solid rgba(255,255,255,.25)}
+.nm{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.xp{font-size:20px;font-weight:800;margin-top:1px}.xp small{font-size:10px;font-weight:500;opacity:.6}
+.opp{display:inline-block;font-size:10px;font-weight:700;padding:1px 6px;border-radius:5px;margin-top:3px;color:#111}
+.bar{height:4px;border-radius:2px;background:#2a3a66;margin-top:5px;overflow:hidden}.bar i{display:block;height:100%;background:#38d39f}
+.dc{font-size:9px;color:#8e9bc4;margin-top:2px}
+.bench{border-top:1px dashed #2c3f73;margin-top:16px;padding-top:6px}.bench .lbl{text-align:center;font-size:11px;letter-spacing:.12em;color:#8e9bc4}
+.d2{background:#01fc7a}.d3{background:#e7e7e7}.d4{background:#ff1751;color:#fff!important}.d5{background:#80072d;color:#fff!important}
+.panel{flex:1;min-width:290px;max-width:390px;border-radius:14px;padding:18px;background:rgba(25,38,75,.92);border:1px solid #2c3f73;position:sticky;top:12px}
+.panel h2{margin:0;font-size:20px}.meta{font-size:13px;color:#9fb0de;margin:2px 0 12px}
+.close{display:none;position:absolute;right:14px;top:12px;background:none;border:none;color:#9fb0de;font-size:22px;cursor:pointer}
+.kp{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px}
+.kp div{border-radius:10px;padding:8px;text-align:center;background:rgba(127,140,200,.13)}.kp b{display:block;font-size:18px}.kp span{font-size:11px;color:#9fb0de}
+.sec{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:#8e9bc4;margin:12px 0 6px}
+.fx{display:flex;gap:6px}.fx div{flex:1;border-radius:6px;padding:6px 2px;text-align:center;font-size:12px;font-weight:600;color:#111}
+.sb{display:flex;align-items:center;gap:8px;font-size:13px;margin:5px 0}.sb .t{width:96px}.sb .b{flex:1;height:8px;border-radius:4px;background:rgba(127,140,200,.2);overflow:hidden}.sb .b i{display:block;height:100%;background:#7b5cff}.sb .v{width:44px;text-align:right}
+.note{font-size:12px;color:#b4c0e6;line-height:1.45}
+.warn{background:#ffb000;color:#111;border-radius:8px;padding:6px 10px;font-size:13px;margin-bottom:10px}
+.swap{background:#2b1630;border:1px solid #ff5c7a;border-radius:10px;padding:10px;margin-top:8px}
+.swap .h{font-size:13px;font-weight:700;color:#ff8da1;margin-bottom:6px}
+.swap .r{display:flex;align-items:center;gap:10px}
+.swap .r .av{width:34px;height:34px;font-size:12px;margin:0}
+.swap .gain{margin-left:auto;font-size:18px;font-weight:800;color:#38d39f}
+@media(max-width:760px){
+ .wrap{display:block;padding:10px}
+ .p{width:84px}.xp{font-size:17px}
+ .proj{margin-left:0}
+ .panel{position:fixed;left:0;right:0;bottom:0;top:auto;max-width:none;max-height:72vh;overflow:auto;border-radius:18px 18px 0 0;transform:translateY(100%);transition:transform .25s;z-index:5;box-shadow:0 -10px 30px rgba(0,0,0,.5)}
+ .panel.open{transform:translateY(0)}
+ .close{display:block}
+}
+.kit{width:52px;height:52px;display:block;margin:2px auto 2px;filter:drop-shadow(0 2px 3px rgba(0,0,0,.45))}</style></head><body>
+<div class="note-top">Mockup v5 (kit shirts) · players picked by hand, numbers made up — not real data · click any player for stats</div>
+<div class="grades" id="grades"></div>
+<div class="wrap"><div class="pitch" id="pitch"></div><div class="panel" id="panel"></div></div>
+<script>
+const T={MCI:'#6CABDD',ARS:'#EF0107',LIV:'#C8102E',CHE:'#034694',AVL:'#95BFE5',NEW:'#8a8a8a',BOU:'#DA291C',BHA:'#0057B8',TOT:'#d8dcf0',FUL:'#cfcfcf'};
+const AVB={MCI:'#3d82b8',ARS:'#EF0107',LIV:'#C8102E',CHE:'#034694',AVL:'#670E36',NEW:'#333',BOU:'#DA291C',BHA:'#0057B8',TOT:'#132257',FUL:'#555'};
+const P=[
+{fn:'David Raya',n:'Raya',c:'ARS',pos:'GK',xp:4.0,x3:12.1,f:5.2,xg:0,xa:0,dc:0,pr:5.6,own:31,fx:[['bur',2],['MUN',3],['liv',4]]},
+{fn:'Gabriel Magalhães',n:'Gabriel',c:'ARS',pos:'DEF',xp:5.1,x3:15.4,f:6.0,xg:.9,xa:.3,dc:58,pr:6.4,own:44,fx:[['bur',2],['MUN',3],['liv',4]]},
+{fn:'Joško Gvardiol',n:'Gvardiol',c:'MCI',pos:'DEF',xp:4.9,x3:14.0,f:4.8,xg:.6,xa:.8,dc:64,pr:6.1,own:22,fx:[['FUL',2],['tot',4],['BHA',3]]},
+{fn:'Antonee Robinson',n:'Robinson',c:'FUL',pos:'DEF',xp:2.3,x3:7.2,f:2.1,xg:.1,xa:.9,dc:41,pr:4.9,own:9,fx:[['mci',5],['ARS',4],['che',4]]},
+{fn:'Mohamed Salah',n:'Salah',c:'LIV',pos:'MID',xp:7.8,x3:22.9,f:8.4,xg:3.9,xa:2.1,dc:12,pr:13.4,own:61,fx:[['WHU',2],['bou',3],['ARS',4]],sp:'1st choice penalties'},
+{fn:'Bukayo Saka',n:'Saka',c:'ARS',pos:'MID',xp:6.4,x3:19.0,f:6.9,xg:2.4,xa:2.6,dc:9,pr:10.1,own:38,fx:[['bur',2],['MUN',3],['liv',4]],sp:'Corners, 2nd penalties'},
+{fn:'Antoine Semenyo',n:'Semenyo',c:'BOU',pos:'MID',xp:0.0,x3:0.0,f:5.5,xg:2.8,xa:1.1,dc:22,pr:7.6,own:27,fx:[['LEE',2],['LIV',3],['ful',3]],flag:'Injured – expected back in 8 weeks',sell:{to:'Rayan Cherki',c:'MCI',gain:18.0,why:'Cherki: 6.0 xP next GW, easy MCI fixtures; Semenyo is out.'}},
+{fn:'Morgan Rogers',n:'Rogers',c:'AVL',pos:'MID',xp:5.3,x3:15.9,f:5.0,xg:1.6,xa:1.7,dc:31,pr:7.0,own:18,fx:[['bha',3],['EVE',2],['new',4]]},
+{fn:'Erling Haaland',n:'Haaland',c:'MCI',pos:'FWD',xp:9.1,x3:24.6,f:9.0,xg:6.1,xa:.7,dc:3,pr:14.5,own:72,fx:[['FUL',2],['tot',4],['BHA',3]],cap:1,sp:'1st choice penalties'},
+{fn:'João Pedro',n:'João Pedro',c:'CHE',pos:'FWD',xp:5.5,x3:16.2,f:6.2,xg:3.0,xa:1.0,dc:6,pr:7.7,own:24,fx:[['NFO',2],['wol',2],['FUL',3]]},
+{fn:'Ollie Watkins',n:'Watkins',c:'AVL',pos:'FWD',xp:4.2,x3:13.1,f:3.8,xg:2.2,xa:.6,dc:5,pr:8.8,own:12,fx:[['bha',3],['EVE',2],['new',4]]}];
+const B=[
+{fn:'Bart Verbruggen',n:'Verbruggen',c:'BHA',pos:'GK',xp:1.0,x3:3.2,f:2,xg:0,xa:0,dc:0,pr:4.5,own:3,fx:[['AVL',3],['ful',3],['mci',4]]},
+{fn:'Milos Kerkez',n:'Kerkez',c:'LIV',pos:'DEF',xp:3.1,x3:10.0,f:3.4,xg:.2,xa:.7,dc:47,pr:5.9,own:15,fx:[['WHU',2],['bou',3],['ARS',4]]},
+{fn:'Yoane Wissa',n:'Wissa',c:'NEW',pos:'FWD',xp:2.7,x3:8.9,f:3,xg:1.3,xa:.4,dc:4,pr:6.4,own:6,fx:[['tot',4],['WOL',2],['AVL',3]]},
+{fn:'Joachim Andersen',n:'Andersen',c:'FUL',pos:'DEF',xp:2.0,x3:6.4,f:2.2,xg:.1,xa:.1,dc:71,pr:4.4,own:5,fx:[['mci',5],['ARS',4],['che',4]]}];
+const G=[['Attack','A'],['Midfield','B'],['Defence','C'],['Fixtures','B'],['Injury risk','D'],['Bench','C']];
+const ALL=P.concat(B);let sel=P[6];
+const KIT={MCI:['#6CABDD','#fff','#1c2c5b'],ARS:['#EF0107','#fff','#fff'],LIV:['#C8102E','#C8102E','#fff'],CHE:['#034694','#034694','#fff'],AVL:['#670E36','#95BFE5','#fff'],NEW:['stripes','#fff','#fff'],BOU:['bou','#000','#fff'],BHA:['bha','#0057B8','#0057B8'],TOT:['#fff','#132257','#132257'],FUL:['#fff','#000','#000']};
+const ini=n=>{const w=n.split(' ');return (w[0][0]+w[w.length-1][0]).toUpperCase()};
+function shirt(c,n){const[a,sl,tx]=KIT[c];let body=a,defs='';
+ if(a==='stripes'){defs='<pattern id="st'+c+'" width="8" height="10" patternUnits="userSpaceOnUse"><rect width="4" height="10" fill="#111"/><rect x="4" width="4" height="10" fill="#fff"/></pattern>';body='url(#st'+c+')'}
+ if(a==='bou'){defs='<pattern id="st'+c+'" width="10" height="10" patternUnits="userSpaceOnUse"><rect width="5" height="10" fill="#DA291C"/><rect x="5" width="5" height="10" fill="#111"/></pattern>';body='url(#st'+c+')'}
+ if(a==='bha'){defs='<pattern id="st'+c+'" width="12" height="10" patternUnits="userSpaceOnUse"><rect width="6" height="10" fill="#0057B8"/><rect x="6" width="6" height="10" fill="#fff"/></pattern>';body='url(#st'+c+')'}
+ const lbl=(a==='stripes'||a==='bou'||a==='bha')?'':`<text x="30" y="40" text-anchor="middle" font-size="12" font-weight="700" fill="${tx}" font-family="sans-serif">${ini(n)}</text>`;
+ return `<svg class="kit" viewBox="0 0 60 60"><defs>${defs}</defs><path d="M14 22 L4 26 L1 14 L16 5 Z" fill="${sl}"/><path d="M46 22 L56 26 L59 14 L44 5 Z" fill="${sl}"/><path d="M16 5 Q30 13 44 5 L46 22 L46 57 L14 57 L14 22 Z" fill="${body}" stroke="rgba(0,0,0,.35)" stroke-width="1"/><path d="M24 6 Q30 11 36 6" fill="none" stroke="${sl==='#C8102E'||sl==='#034694'?'#fff':sl}" stroke-width="2"/>${lbl}</svg>`}
+const opp=f=>`${f[0].toUpperCase()} (${f[0]===f[0].toLowerCase()?'A':'H'})`;
+function card(p){const i=ALL.indexOf(p);
+ return `<div class="p${p===sel?' sel':''}${p.sell?' sell':''}" style="--club:${T[p.c]}" onclick="pick(${i})">
+ ${p.sell?'<span class="selltag">↘ SELL</span>':''}
+ <div class="pos">${p.pos}${p.cap?' · C':''}${p.flag?' · ⚠':''}</div>
+ ${shirt(p.c,p.fn)}
+ <div class="nm">${p.n}</div>
+ <div class="xp" style="color:${p.xp>=5?'#38d39f':p.xp<2.5?'#ff5c7a':'#fff'}">${p.xp.toFixed(1)}<small> xP</small></div>
+ <span class="opp d${p.fx[0][1]}">${opp(p.fx[0])}</span>
+ <div class="bar" title="DefCon chance: how likely he earns the 2 defensive-contribution points"><i style="width:${p.dc}%"></i></div>
+ <div class="dc">DefCon ${p.dc}%</div></div>`}
+function draw(){
+ document.getElementById('grades').innerHTML=G.map(([a,g])=>`<div class="g g${g}"><b>${g}</b><span>${a}</span></div>`).join('')+`<div class="proj"><b>61.5 pts</b><span>projected · average manager 53.5</span></div>`;
+ const by=pos=>P.filter(p=>p.pos===pos).map(card).join('');
+ document.getElementById('pitch').innerHTML=['FWD','MID','DEF','GK'].map(x=>`<div class="row">${by(x)}</div>`).join('')+`<div class="bench"><div class="lbl">BENCH</div><div class="row">${B.map(card).join('')}</div></div>`;
+ const p=sel,sb=(t,v,m,s)=>`<div class="sb"><span class="t">${t}</span><span class="b"><i style="width:${Math.min(100,v/m*100)}%"></i></span><span class="v">${s}</span></div>`;
+ const posw={GK:'goalkeepers',DEF:'defenders',MID:'midfielders',FWD:'forwards'}[p.pos];
+ document.getElementById('panel').innerHTML=`<button class="close" onclick="closeP()">×</button>
+ <h2>${p.fn}${p.cap?' (C)':''}</h2><div class="meta">${p.pos} · ${p.c} · £${p.pr}m · ${p.own}% owned</div>
+ ${p.flag?`<div class="warn">⚠ ${p.flag}</div>`:''}
+ ${p.sell?`<div class="swap"><div class="h">↘ Suggested sell</div><div class="r"><div style="width:40px">${shirt(p.sell.c,p.sell.to)}</div><div><b>${p.sell.to}</b><div class="note">${p.sell.why}</div></div><div class="gain">+${p.sell.gain.toFixed(1)}</div></div><div class="note" style="margin-top:6px">extra points over the next 3 gameweeks · uses your 1 free transfer</div></div>`:''}
+ <div class="kp" style="margin-top:12px"><div><b>${p.xp.toFixed(1)}</b><span>xP next GW</span></div><div><b>${p.x3.toFixed(1)}</b><span>xP next 3</span></div><div><b>${p.dc}%</b><span>DefCon chance</span></div></div>
+ <div class="note"><b>DefCon chance</b> = how likely he earns FPL's 2 bonus points for defensive work this week. Defenders need 10+ clearances, blocks, interceptions and tackles in a match; midfielders and forwards need 12+, with ball recoveries also counting. Based on how often he hit it in his last 6 games, adjusted for the opponent.</div>
+ <div class="sec">Next fixtures</div><div class="fx">${p.fx.map(f=>`<div class="d${f[1]}">${opp(f)}</div>`).join('')}</div>
+ <div class="sec">Last 6 gameweeks</div>${sb('Form (pts/gm)',p.f,10,p.f.toFixed(1))}${sb('xG',p.xg,7,p.xg.toFixed(1))}${sb('xA',p.xa,7,p.xa.toFixed(1))}${sb('DefCon hits',p.dc,100,p.dc+'%')}
+ <div class="sec">Opponent weakness</div><div class="note">${p.fx[0][0].toUpperCase()} concede the 3rd-most points to ${posw} over the last 6 GWs.</div>
+ <div class="sec">Set pieces</div><div class="note">${p.sp||'No set-piece duties'}</div>`}
+function pick(i){sel=ALL[i];draw();document.getElementById('panel').classList.add('open')}
+function closeP(){document.getElementById('panel').classList.remove('open')}
+draw();
+</script></body></html>
