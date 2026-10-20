@@ -7,6 +7,15 @@ Type in your Fantasy Premier League team ID and see how your squad grades agains
 
 **Live app:** _add the Streamlit link here after deploying._
 
+## What v2 adds
+
+- **Richer data:** expected goals (xG), expected assists (xA), clean sheets, DefCon (FPL's defensive-contribution bonus) and set-piece takers, stored for every player and gameweek.
+- **Forecast v2:** an explainable expected-points model built from those stats (formula in `fpl/sql/forecast_v2.sql`). Its one fitted setting is fitted on 2024-25 and scored on 2025-26. It beat my v1 model and the simple baseline but not FPL's own prediction, so the app still uses FPL's numbers and shows v2's DefCon chance, clean-sheet chance and opponent weaknesses as information.
+- **Opponent weaknesses:** points each club concedes to goalkeepers, defenders, midfielders and forwards over the last 6 gameweeks.
+- **New team view:** dark player cards with drawn club kits and a click-for-stats panel that also works on a phone.
+
+New to the project? Read the plain-English walkthrough in [`docs/interview-explainer.md`](docs/interview-explainer.md).
+
 ## How it works
 
 Plain English first. Jargon is explained as it appears.
@@ -33,9 +42,11 @@ expected points = chance he starts  x  his points per 90 minutes  x  fixture dif
 
 The forecast is written as a chain of SQL **views** (saved, named queries) in `fpl/sql/forecast.sql`. Python only runs them.
 
-**Which forecast the app uses.** I backtested (tested on past data, looking only at what was known beforehand) three methods on last season: the SQL model, a simple last-5-gameweeks average, and FPL's own prediction. The score is **MAE** (mean absolute error: the average gap between prediction and real points; lower is better). The app uses whichever source won. At the moment `meta.forecast_source` is `fpl_ep`, meaning FPL's own prediction is used for next gameweek, and the 3-gameweek number is that prediction scaled by how many and how hard the next three fixtures are. A second table checks the 3-gameweek numbers behind the transfer suggestions the same way (it does not change which source is used). The full numbers and caveats are in the backtest report.
+**Which forecast the app uses.** I backtested (tested on past data, looking only at what was known beforehand) three methods on last season: the SQL model, a simple last-5-gameweeks average, and FPL's own prediction. The score is **MAE** (mean absolute error: the average gap between prediction and real points; lower is better). The app uses whichever source won. At the moment `meta.forecast_source_1gw` and `meta.forecast_source_3gw` are both `fpl_ep`, meaning FPL's own prediction is used for next gameweek, and the 3-gameweek number is that prediction scaled by how many and how hard the next three fixtures are. A second table checks the 3-gameweek numbers behind the transfer suggestions the same way (it does not change which source is used). The full numbers and caveats are in the backtest report.
 
-**Results so far:** see [`reports/backtest.md`](reports/backtest.md) for the backtest scores, the gameweeks covered, and the caveats (including that the model's fixture multipliers were fitted on the same season it was tested on).
+**Forecast v2.** The v2 model (`fpl/sql/forecast_v2.sql`) is backtested the same way, with its fitted setting learned on 2024-25 and scored on 2025-26. The app uses v2 for a horizon only if its error is strictly lower than every other method's on identical rows. It was not, so `meta.forecast_source_1gw` and `meta.forecast_source_3gw` are both `fpl_ep`.
+
+**Results so far:** see [`reports/backtest.md`](reports/backtest.md) for the backtest scores, the gameweeks covered, and the caveats (including a current-season check that is still pending).
 
 ### 3. Grades
 

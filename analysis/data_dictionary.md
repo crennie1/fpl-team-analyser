@@ -10,13 +10,17 @@ Two kinds of things live in the database:
 ## Conventions
 
 - **Money** is stored in tenths of a million pounds, as FPL does. `now_cost` of 105 means 10.5m. Divide by 10 to show pounds.
-- **Season** is text like `2025-26`. The database holds two:
-  - `2025-26` is the past season. It is complete and is used for the backtest.
+- **Season** is text like `2025-26`. The database holds three:
+  - `2024-25` is the older past season (`meta.fit_season`). The v2 forecast's one fitted setting and v1's FDR multipliers are fitted on it.
+  - `2025-26` is the past season used to test (`meta.backtest_season`). It is complete.
   - `2026-27` is the current season. It is loaded gameweek by gameweek.
 - **GW** means gameweek (FPL's round of matches, numbered 1 to 38).
 - **FDR** means Fixture Difficulty Rating. FPL's own score from 1 (easy) to 5 (hard) for how tough a match is for one side.
 - **pts/90** means points per 90 minutes played. It lets you compare players with different playing time.
 - **MAE** means mean absolute error: the average size of the gap between a prediction and the real points, ignoring whether it was too high or too low. Lower is better.
+- **xG** (expected goals) is how many goals a player's chances should have produced. **xA** (expected assists) is the same for chances he created. They measure chance quality, not luck.
+- **DefCon** (defensive contribution) is an FPL bonus of 2 points. A defender gets it for 10 or more clearances, blocks, interceptions and tackles in a match. A midfielder or forward needs 12 or more, and ball recoveries count too. Goalkeepers cannot earn it.
+- **Out-of-sample** means scored on data the model was not fitted on.
 - **Percentile** means "what share of the reference squads you beat". 70 means you beat 70 percent of them.
 - **Positions** are `GK`, `DEF`, `MID`, `FWD`.
 - A **double gameweek** gives a player two fixtures in one GW (two rows in `player_gw`). A **blank gameweek** gives none.
@@ -36,10 +40,13 @@ Keys in use:
 | Key | Meaning |
 |---|---|
 | `current_season` | The live season (`2026-27`). |
-| `backtest_season` | The past season used to test and fit the model (`2025-26`). |
+| `backtest_season` | The past season the forecasts are scored on (`2025-26`). |
+| `fit_season` | The earlier season fitted settings are learned from (`2024-25`). Removed if only one past season is loaded. |
 | `next_gw` | The upcoming gameweek number. |
 | `last_collected` | When the data was last refreshed (UTC time). The app warns if this is over 36 hours old. |
-| `forecast_source` | Which forecast the app shows for next week: `fpl_ep` (FPL's own number) or `model` (ours). Chosen by the backtest. Currently `fpl_ep`. |
+| `forecast_source` | Older single setting: which forecast the app shows, `fpl_ep` (FPL's own number) or `model` (ours). Used only if the two keys below are missing. Currently `fpl_ep`. |
+| `forecast_source_1gw` | Source for the next-gameweek number: `fpl_ep`, `v2` or `model`. Chosen by the 1-gameweek backtest. Currently `fpl_ep`. |
+| `forecast_source_3gw` | Source for the next-3-gameweeks number, chosen by the 3-gameweek backtest. Currently `fpl_ep`. |
 
 ### `team`
 Premier League clubs, per season.
@@ -61,6 +68,8 @@ Every player registered in a season.
 | `web_name` | The name FPL shows on screen. |
 | `team_id` | The player's club now (join to `team`). |
 | `position` | `GK`, `DEF`, `MID` or `FWD`. |
+| `first_name` | First name. Empty if unknown. Used for card initials. |
+| `second_name` | Full surname as registered. Empty if unknown. |
 
 ### `player_snapshot`
 What FPL said about each player at the time of a data collection. Latest collection wins (see the view `v_latest_snapshot`).
@@ -110,6 +119,39 @@ What a player did in one match. A player in a double gameweek has two rows for t
 
 About `ep_pre`: in the past-season archive some gameweeks list 0 for every player. A prediction of zero for everyone is not real, it is missing data. So those whole gameweeks are stored as NULL. A single player with 0 in a gameweek that has other predictions stays 0, because that is a real prediction.
 
+### `player_gw_stats`
+The richer stats, one row per player per gameweek (a double gameweek is already summed). Used by forecast v2 and the player cards.
+
+| Column | Meaning |
+|---|---|
+| `season`, `gw`, `player_id` | Which player and gameweek. |
+| `minutes`, `starts` | Minutes played and matches started. |
+| `xg`, `xa`, `xgi`, `xgc` | Expected goals, expected assists, expected goal involvements and expected goals conceded. |
+| `goals`, `assists`, `clean_sheets`, `goals_conceded` | What really happened. |
+| `defcon_actions` | His count of DefCon actions. Empty for 2024-25, which has no DefCon data. |
+| `defcon_hits` | Matches where he reached his position's DefCon threshold. Empty when the season has no DefCon data. |
+| `apps` | Matches with minutes above 0. |
+
+### `set_piece`
+Who takes set pieces, as FPL lists them today (latest snapshot only, no history). Display-only: it does not affect any forecast. 1 means first choice.
+
+| Column | Meaning |
+|---|---|
+| `season`, `player_id` | Player. |
+| `penalties_order` | Penalty taker order. |
+| `corners_order` | Corner taker order. |
+| `direct_fk_order` | Direct free-kick taker order. |
+| `collected_at` | When it was collected. |
+
+### `model_param`
+Fitted forecast settings, written by `python -m fpl.fit`. A missing row means 1.0.
+
+| Column | Meaning |
+|---|---|
+| `name` | Setting name. Only `calib_att` exists. |
+| `position` | `GK`, `DEF`, `MID` or `FWD`. |
+| `value` | The fitted value. `calib_att` scales the xG/xA part of forecast v2. It is fitted on `fit_season` as actual divided by predicted attacking points, clamped to 0.5 to 2.0. If a position's predicted attacking points on the fit season total under 50 it stays 1.0 (this is the case for `GK`). |
+
 ### `squad_pick`
 The players in a squad. A squad is 15 players.
 
@@ -142,9 +184,11 @@ A saved copy of the view `v_xp_next`, taken after each data load. It is a table 
 | `xp_next` | Expected points next gameweek. |
 | `xp_next3` | Expected points over the next 3 gameweeks. |
 | `start_prob` | Chance he starts, 0 to 1. |
-| `xp_source` | `fpl_ep` or `model`: where the numbers came from. |
+| `xp_source` | `fpl_ep`, `v2` or `model`: where the numbers came from. If the two horizons differ it reads like `fpl_ep/v2` (next gameweek source, then 3-gameweek source). |
+| `defcon_chance` | Chance he reaches his DefCon threshold next gameweek (0 to 1). Always filled from v2, whichever source is chosen. 0 for goalkeepers. |
+| `cs_chance` | Chance his team keeps a clean sheet next gameweek. Always filled from v2. |
 
-## The forecast: how expected points are worked out
+## The forecast (v1): how expected points are worked out
 
 For one fixture:
 
@@ -160,17 +204,40 @@ Form windows count **back from the last loaded gameweek**, by gameweek number. A
 
 A blank gameweek gives 0. A double gameweek adds both fixtures.
 
-**What the app shows.** When `meta.forecast_source` is `fpl_ep`:
+**What the app shows.** Each horizon has its own source (`forecast_source_1gw` for `xp_next`, `forecast_source_3gw` for `xp_next3`). When the source is `fpl_ep`:
 
 - `xp_next` is FPL's own `ep_next`.
 - `xp_next3` is `ep_next` scaled by the fixtures: `ep_next x (sum of FDR multipliers over his fixtures in the next 3 gameweeks) / (sum of FDR multipliers over his fixtures in the next gameweek)`.
 - If he has no fixture next gameweek, or `ep_next` is empty, both numbers fall back to the model.
 
-When `forecast_source` is `model`, both numbers come from the model. `xp_source` says which was used.
+When the source is `model`, the number comes from the v1 model. When it is `v2`, it comes from forecast v2 (below). `xp_source` says which was used.
 
-The backtest scores `xp_next3` too: its second table compares this scaled FPL number, the model's 3-gameweek total and the last-5 average times the number of fixtures against real points over 3 gameweeks. The one-gameweek table alone chooses `forecast_source`.
+The backtest scores each horizon in its own table: one gameweek ahead, and 3 gameweeks ahead (FPL's scaled number, v1 summed over 3, v2 summed over 3, and the last-5 average times the number of fixtures). Each table chooses its own source. v2 is chosen for a horizon only if its error is strictly lower than every other method's on the same rows.
 
-**Honest caveat.** The FDR multipliers were fitted on the same past season that the backtest scores, so the model's backtest error is a little too good. FPL's own prediction and the last-5 average have no such advantage. See `reports/backtest.md`.
+**Out-of-sample.** The FDR multipliers and `calib_att` are fitted on `fit_season` (2024-25) and scored on `backtest_season` (2025-26), so the backtest does not flatter them. See `reports/backtest.md`.
+
+## The forecast (v2)
+
+Written out in full, with the plain-English reasons, at the top of `fpl/sql/forecast_v2.sql`. For one fixture:
+
+```
+expected points = start_prob x [ 2
+                               + calib_att x (xg90 x GOAL_PTS + xa90 x 3) x opp_xg_ratio
+                               + CS_PTS x cs_chance
+                               + 2 x defcon_chance ]
+```
+
+A double gameweek sums its fixtures. A blank gameweek is 0. There is no set-piece bonus.
+
+- **start_prob**: same as v1 (share of the last 5 loaded gameweeks' minutes, times FPL's `chance_next` for the upcoming gameweek).
+- **2**: points for playing 60 minutes or more.
+- **xg90, xa90**: his xG and xA per 90 minutes over the last 6 loaded gameweeks. Under 180 minutes, the position average is used. `GOAL_PTS` is 6 for GK and DEF, 5 for MID, 4 for FWD. An assist is worth 3.
+- **opp_xg_ratio**: xG the opponent concedes to his position per match (last 6), divided by the league average. Clamped to 0.5 to 2.0. Set to 1.0 if the league average is under 0.05 a match (too rare to compare).
+- **calib_att**: the fitted scale factor above (1.0 if there is no row).
+- **cs_chance**: chance of a clean sheet, `exp(-lambda)`, where lambda is his team's xG conceded per match (last 6) times the opponent's attack ratio. `CS_PTS` is 4 for GK and DEF, 1 for MID, 0 for FWD.
+- **defcon_chance**: his DefCon hit rate over the last 6 loaded gameweeks times the opponent's DefCon ratio, capped at 0.95. The hit rate is pulled toward the position average as if he had 3 extra matches at that average: `(hits + 3 x position average rate) / (apps + 3)`. Goalkeepers get 0. It is also 0 for any season with no DefCon data. It has no fitted parameters.
+
+Every window counts only gameweeks before the one being predicted.
 
 ## Views
 
@@ -183,6 +250,9 @@ v_as_of_grid, v_latest_snapshot, v_fdr_multiplier
                                                     |
                                           (copied into xp_next_cache)
                                                     |
+v_pf_stat -> v_team_gw, v_team_gw_pos -> v_team_conceded, v_team_xg -> v_opp_weakness
+   -> v_player_threat -> v_xp2_slot -> v_xp2_fixture -> v_cs_chance, v_defcon_chance, v_xp2 -> v_xp2_next
+                                                                       (feeds v_xp_next)
 v_squad_pick_xp + v_squad_fixtures -> v_squad_metrics -> v_squad_area_value -> v_squad_grades
 ```
 
@@ -286,7 +356,91 @@ What the app shows: current season, upcoming gameweek. See "What the app shows" 
 | `xp_next` | Expected points next gameweek. |
 | `xp_next3` | Expected points over the next 3 gameweeks. |
 | `start_prob` | Chance he starts, 0 to 1. |
-| `xp_source` | `fpl_ep` or `model`. |
+| `xp_source` | `fpl_ep`, `v2` or `model`; `fpl_ep/v2` style when the two horizons differ. |
+| `defcon_chance` | v2 DefCon chance next gameweek. Always shown, whichever source is chosen. |
+| `cs_chance` | v2 clean-sheet chance next gameweek. Always shown. |
+
+### Forecast v2 views
+
+All in `fpl/sql/forecast_v2.sql`. The windows are the last 6 loaded gameweeks before `as_of_gw`.
+
+#### `v_pf_stat`
+One row per player per fixture: points, xG and DefCon hits. A double gameweek's xG and DefCon numbers are split between its two fixtures in proportion to minutes played in each (equal split if he played none).
+
+| Column | Meaning |
+|---|---|
+| `season`, `gw`, `fixture_id`, `player_id`, `position` | Which player and match. |
+| `team_id`, `opp_id` | His club that day and the opponent. |
+| `pts`, `xg`, `defcon_hits` | His points, xG and DefCon hits in that fixture. |
+
+#### `v_team_gw` and `v_team_gw_pos`
+Helper views that total things per team and gameweek. `v_team_gw` has matches played, `xg_for` (xG the team's players created) and `xg_against`. `v_team_gw_pos` has what each position's players scored against the team: `pts`, `xg`, `defcon_hits`.
+
+#### `v_team_conceded`
+What players of each position scored against each team, per match, over the last 6 loaded gameweeks.
+
+| Column | Meaning |
+|---|---|
+| `season`, `team_id`, `as_of_gw`, `position` | Team and position. |
+| `pts_pm` | FPL points conceded to that position per match. |
+| `xg_pm` | xG conceded to that position per match. |
+| `defcon_pm` | DefCon hits conceded to that position per match. Empty without DefCon data. |
+
+#### `v_team_xg`
+Each team's attack and defence in xG terms, per match.
+
+| Column | Meaning |
+|---|---|
+| `season`, `team_id`, `as_of_gw` | Team and forecast-from gameweek. |
+| `xg_for_pm` | xG its players created per match. |
+| `xgc_pm` | xG its opponents created per match. |
+| `atk_ratio` | `xg_for_pm` divided by the league average (1.0 is average). |
+
+#### `v_opp_weakness`
+How generous each team is to each position, as a ratio to the league average. A value of 2.0 means "gives up twice the usual".
+
+| Column | Meaning |
+|---|---|
+| `season`, `team_id`, `as_of_gw`, `position` | Team and position. |
+| `pts_ratio`, `xg_ratio`, `defcon_ratio` | Team value divided by league average. Clamped to 0.5 to 2.0. Set to 1.0 when there is no data or the league average is under 0.05 a match. |
+
+#### `v_player_threat`
+Each player's underlying numbers over the last 6 loaded gameweeks.
+
+| Column | Meaning |
+|---|---|
+| `season`, `player_id`, `as_of_gw` | Player and forecast-from gameweek. |
+| `xg90`, `xa90` | xG and xA per 90 minutes. Position average if he has under 180 minutes. |
+| `defcon_rate` | DefCon hit rate per appearance, pulled toward the position average. Empty for goalkeepers, players with no appearances, or no DefCon data. |
+| `team_xgc_pm` | xG his team concedes per match. |
+
+#### `v_xp2_slot`
+One row per player, forecast-from gameweek, target gameweek and fixture. A blank gameweek is one row with `fixture_id` empty. Columns: `season`, `player_id`, `as_of_gw`, `gw`, `fixture_id`, `team_id`, `opp_id`, `start_prob`.
+
+#### `v_xp2_fixture`
+Every component and the expected points, per fixture.
+
+| Column | Meaning |
+|---|---|
+| `season`, `player_id`, `as_of_gw`, `gw`, `fixture_id`, `position` | Which player and fixture. |
+| `start_prob` | Chance he plays. |
+| `cs_chance` | Chance of a clean sheet. |
+| `defcon_chance` | Chance he reaches the DefCon threshold. |
+| `xp_v2` | Forecast v2 expected points for that fixture. |
+| `att_pred` | Expected attacking points with `calib_att` at 1.0. Used only by the fitting code. |
+
+#### `v_cs_chance`, `v_defcon_chance`, `v_xp2`
+Per player per gameweek. `v_cs_chance` sums the clean-sheet chance over his fixtures. `v_defcon_chance` is `1 - (product of (1 - p))` over his fixtures. `v_xp2` sums `xp_v2`. A blank gameweek gives 0.
+
+#### `v_xp2_next`
+What the app reads from v2: current season, upcoming gameweek.
+
+| Column | Meaning |
+|---|---|
+| `player_id` | Player. |
+| `xp_v2_next`, `xp_v2_next3` | v2 expected points next gameweek and over the next 3. |
+| `defcon_chance_next` | DefCon chance next gameweek. |
+| `cs_chance_next` | Clean-sheet chance next gameweek. |
 
 ### `v_squad_pick_xp`
 Each squad pick with the player's position, expected points and risk flag.
