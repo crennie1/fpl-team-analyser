@@ -42,7 +42,7 @@ def test_cards_keys_and_initials(v2db):
     refresh(v2db)
     cards = player_cards(v2db, analysis(view(1, "Haaland", "FWD"), view(2, "Salah", "MID"),
                                         view(3, "De Bruyne", "MID")), [])
-    assert [c["initials"] for c in cards] == ["EH", "SA", "KB"]
+    assert [c["initials"] for c in cards] == ["EH", "SA", "KD"]
     assert set(cards[0]) == {"id", "initials", "name", "full_name", "pos", "club", "price", "owned",
                              "xp", "xp3", "colour", "flag", "starter", "captain", "bar_label",
                              "bar_pct", "fixtures", "last6", "weakness", "set_pieces", "sell"}
@@ -135,3 +135,22 @@ def test_weakness_sentence(v2db):
 def test_ordinals():
     assert [ordinal(n) for n in (1, 2, 3, 4, 11, 12, 13, 20, 21)] == [
         "1st", "2nd", "3rd", "4th", "11th", "12th", "13th", "20th", "21st"]
+
+
+def test_cards_initials_v6(v2db):
+    setup_league(v2db)
+    add(v2db, 1, "GK", 1, "David", "Raya Martín", "Raya")
+    add(v2db, 2, "MID", 1, "Bruno", "Borges Fernandes", "B.Fernandes")
+    add(v2db, 3, "DEF", 1, "Gabriel", "dos Santos Magalhães", "Gabriel")
+    refresh(v2db)
+    cards = player_cards(v2db, analysis(view(1, "Raya", "GK"), view(2, "B.Fernandes", "MID"),
+                                        view(3, "Gabriel", "DEF")), [])
+    assert [c["initials"] for c in cards] == ["DR", "BF", "GG"]
+
+
+def test_cards_skip_player_missing_from_db(v2db):
+    setup_league(v2db)
+    add(v2db, 1, "MID", 1)
+    refresh(v2db)
+    cards = player_cards(v2db, analysis(view(99, "Ghost", "MID"), view(1, "M", "MID")), [])
+    assert [c["id"] for c in cards] == [1]

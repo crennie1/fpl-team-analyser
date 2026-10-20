@@ -20,9 +20,11 @@ def _meta(conn, key):
     return row[0] if row else None
 
 
-def _initials(first, second, web_name):
-    if first and second and first.strip() and second.strip():
-        return (first.strip()[0] + second.split()[-1][0]).upper()
+def _initials(first, web_name):
+    """First letter of first_name + first letter of web_name without any "X." prefix (V6)."""
+    if first and first.strip():
+        surname = web_name.split(".", 1)[1] if "." in web_name[:3] else web_name
+        return (first.strip()[0] + (surname.strip() or web_name)[0]).upper()
     return web_name[:2].upper()
 
 
@@ -84,7 +86,9 @@ def player_cards(conn, analysis: Analysis, suggestions: list) -> list[dict]:
     last_gw = last["last_gw"] if last else None
     cards = []
     for pv in analysis.players:
-        cards.append(_card(conn, pv, season, next_gw, last_gw, ranks, sells.get(pv.player_id)))
+        card = _card(conn, pv, season, next_gw, last_gw, ranks, sells.get(pv.player_id))
+        if card is not None:   # None: not in the player table yet (Analysis.missing)
+            cards.append(card)
     return cards
 
 
@@ -97,6 +101,8 @@ def _card(conn, pv, season, next_gw, last_gw, ranks, sug):
         "LEFT JOIN v_latest_snapshot AS s ON s.player_id = p.player_id "
         "LEFT JOIN xp_next_cache AS x ON x.player_id = p.player_id "
         "WHERE p.season = ? AND p.player_id = ?", (season, pid)).fetchone()
+    if p is None:
+        return None
     is_gk = pv.position == "GK"
     chance = p["cs_chance"] if is_gk else p["defcon_chance"]
 
@@ -151,7 +157,7 @@ def _card(conn, pv, season, next_gw, last_gw, ranks, sug):
                 "gain3": sug.gain3, "hit": sug.hit, "starts_instead_of": sug.starts_instead}
 
     return {
-        "id": pid, "initials": _initials(p["first_name"], p["second_name"], p["web_name"]),
+        "id": pid, "initials": _initials(p["first_name"], p["web_name"]),
         "name": pv.name,
         "full_name": (f"{p['first_name']} {p['second_name']}"
                       if p["first_name"] and p["second_name"] else p["web_name"]),
