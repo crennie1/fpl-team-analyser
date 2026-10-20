@@ -61,6 +61,7 @@ def open_session_db() -> sqlite3.Connection:
     conn.deserialize(_master_bytes(path, os.path.getmtime(path)))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    db.register_functions(conn)
     return conn
 
 

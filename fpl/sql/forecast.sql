@@ -55,14 +55,18 @@ WHERE s.season = (SELECT value FROM meta WHERE key = 'current_season')
 
 
 -- FDR multiplier = points per 90 at that FDR / points per 90 overall,
--- per position. Fitted on the backtest season (ruling R10), then applied
--- to every season. Only rows where the player actually played count.
+-- per position. Fitted on meta.fit_season (the season before the backtest
+-- season, so the backtest is honest), falling back to backtest_season when only
+-- one history season is loaded; then applied to every season.
+-- Only rows where the player actually played count.
 CREATE VIEW v_fdr_multiplier AS
 WITH played AS (
     SELECT pl.position, g.fdr, g.minutes, g.total_points
     FROM player_gw AS g
     JOIN player AS pl ON pl.season = g.season AND pl.player_id = g.player_id
-    WHERE g.season = (SELECT value FROM meta WHERE key = 'backtest_season')
+    WHERE g.season = (SELECT COALESCE(MAX(CASE WHEN key = 'fit_season' THEN value END),
+                             MAX(CASE WHEN key = 'backtest_season' THEN value END))
+                      FROM meta)
       AND g.minutes > 0
       AND g.fdr IS NOT NULL
 ),
@@ -76,7 +80,9 @@ overall AS (         -- points per 90 for the position as a whole
     FROM played
     GROUP BY position
 )
-SELECT (SELECT value FROM meta WHERE key = 'backtest_season') AS season,
+SELECT (SELECT COALESCE(MAX(CASE WHEN key = 'fit_season' THEN value END),
+                        MAX(CASE WHEN key = 'backtest_season' THEN value END))
+        FROM meta) AS season,
        f.position,
        f.fdr,
        f.pts90 / o.pts90 AS mult

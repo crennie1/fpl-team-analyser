@@ -1,13 +1,29 @@
 """SQLite helpers: connection, schema and SQL-file application."""
+import math
 import sqlite3
 from pathlib import Path
 
 SQL_DIR = Path(__file__).parent / "sql"
-VIEW_FILES = ("forecast.sql", "squad.sql")
+VIEW_FILES = ("forecast.sql", "forecast_v2.sql", "squad.sql")
+
+
+def register_functions(conn):
+    """Make sure `exp` and `ln` exist as SQL functions (forecast_v2.sql uses them).
+
+    Most SQLite builds ship them (3.35+ with math functions); for any that is missing
+    (`SELECT exp(0)` fails) we register Python's math.exp / math.log. NULL in, NULL out.
+    """
+    for name, expr, fn in (("exp", "exp(0)", math.exp), ("ln", "ln(1)", math.log)):
+        try:
+            conn.execute(f"SELECT {expr}").fetchone()
+        except sqlite3.OperationalError:
+            conn.create_function(name, 1, lambda x, fn=fn: None if x is None else fn(x),
+                                 deterministic=True)
 
 
 def connect(path):
     conn = sqlite3.connect(str(path))
+    register_functions(conn)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
@@ -37,7 +53,7 @@ def apply_sql(conn, *files):
 
 
 def apply_views(conn):
-    """Apply forecast.sql then squad.sql, skipping files that do not exist yet."""
+    """Apply forecast.sql, forecast_v2.sql, then squad.sql, skipping files that do not exist yet."""
     present = [f for f in VIEW_FILES if (SQL_DIR / f).exists()]
     if present:
         apply_sql(conn, *present)
@@ -63,6 +79,8 @@ def memory_copy(path):
         src.close()
     mem.row_factory = sqlite3.Row
     mem.execute("PRAGMA foreign_keys = ON")
+    register_functions(mem)
+    apply_sql(mem, "schema.sql")   # idempotent: adds tables a committed older db lacks (model_param)
     apply_views(mem)
     refresh_xp_cache(mem)
     return mem

@@ -130,3 +130,12 @@ CREATE TABLE IF NOT EXISTS xp_next_cache (
     start_prob REAL,
     xp_source TEXT
 );
+
+-- Fitted forecast parameters (written by the backtest fit; a missing row means factor 1.0).
+-- e.g. name 'calib_att', position 'MID': scales the xG/xA part of forecast v2.
+CREATE TABLE IF NOT EXISTS model_param (
+    name TEXT NOT NULL,
+    position TEXT NOT NULL,
+    value REAL NOT NULL,
+    PRIMARY KEY (name, position)
+);
