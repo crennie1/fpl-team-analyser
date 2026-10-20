@@ -1,6 +1,10 @@
 import json
 import re
+import shutil
+import subprocess
 from pathlib import Path
+
+import pytest
 
 from fpl.ui.kits import DEFAULT_KIT, KITS
 from app import team_view_html
@@ -68,3 +72,27 @@ def test_narrow_screens_open_panel_inline_after_row():
     assert "position:fixed" not in media and "position:static" in media
     assert "row.after(panel)" in src and "innerWidth<=760" in src
     assert "position:fixed" not in src
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_phone_tap_opens_panel_after_the_tapped_cards_row(tmp_path):
+    """Payload order (GK first) differs from pitch order (FWD, MID, DEF, GK): the MID's panel
+    must land after the MID row."""
+    cards = []
+    for i, pos in enumerate(["GK", "DEF", "MID", "FWD"]):
+        base = payload(pos=pos, id=i, name=f"P{i}", bar_label="Clean sheet" if pos == "GK" else "DefCon")
+        cards.append(base["cards"][0])
+    pl = payload()
+    pl["cards"] = cards
+    html = team_view_html(pl)
+    js = tmp_path / "page.js"
+    js.write_text(re.search(r"<script>(.*)</script>", html, re.S).group(1))
+    harness = Path(__file__).parent / "js" / "pick_harness.js"
+    for idx, pos in ((2, "MID"), (1, "DEF"), (3, "FWD"), (0, "GK")):
+        out = subprocess.run(["node", str(harness), str(js), str(idx)], capture_output=True,
+                             text=True, check=False)
+        assert out.returncode == 0, out.stderr
+        out = out.stdout
+        res = json.loads(out)
+        assert res["open"] and res["afterNode"] == "panel"
+        assert res["afterRow"] == [pos]

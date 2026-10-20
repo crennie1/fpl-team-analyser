@@ -77,7 +77,7 @@ function shirt(club,initials){
 const oppTxt=f=>`${esc(f.opp)} (${f.home?'H':'A'})`;
 const fdr=f=>Math.min(5,Math.max(2,f.fdr||3));
 function card(p){const i=ALL.indexOf(p),f=p.fixtures[0],xp=p.xp;
- return `<div class="p${p===sel?' sel':''}${p.sell?' sell':''}" style="--club:${esc(kitOf(p.club).body==='#ffffff'?kitOf(p.club).sleeves:kitOf(p.club).body)}" onclick="pick(${i})">
+ return `<div class="p${p===sel?' sel':''}${p.sell?' sell':''}" data-i="${i}" style="--club:${esc(kitOf(p.club).body==='#ffffff'?kitOf(p.club).sleeves:kitOf(p.club).body)}" onclick="pick(${i})">
  ${p.sell?'<span class="selltag">↘ SELL</span>':''}
  <div class="pos">${esc(p.pos)}${p.captain?' · C':''}${p.flag?' · <span class="fl">⚠</span>':''}</div>
  ${shirt(p.club,p.initials)}
@@ -112,7 +112,7 @@ function draw(){
  <div class="sec">Opponent weakness</div><div class="note">${p.weakness?esc(p.weakness)+'.':'Not enough data yet.'}</div>
  <div class="sec">Set pieces</div><div class="note">${p.set_pieces?esc(p.set_pieces):'No set-piece duties'}</div>`}
 function pick(i){sel=ALL[i];draw();
- if(window.innerWidth<=760){const panel=document.getElementById('panel'),row=document.querySelectorAll('#pitch .p')[i].parentNode;
+ if(window.innerWidth<=760){const panel=document.getElementById('panel'),row=document.querySelector('#pitch .p[data-i="'+i+'"]').parentNode;
   row.after(panel);panel.classList.add('open');panel.scrollIntoView({block:'nearest'})}}
 function closeP(){document.getElementById('panel').classList.remove('open')}
 draw();
