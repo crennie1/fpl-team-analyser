@@ -14,10 +14,17 @@ def connect(path):
 
 
 def _migrate(conn):
-    """Add columns that older databases lack (CREATE TABLE IF NOT EXISTS keeps old tables)."""
+    """Add columns that older databases lack (CREATE TABLE IF NOT EXISTS keeps old tables).
+
+    Missing v2 tables are created by schema.sql itself (CREATE TABLE IF NOT EXISTS).
+    """
     cols = {r[1] for r in conn.execute("PRAGMA table_info(player_snapshot)")}
     if cols and "news" not in cols:
         conn.execute("ALTER TABLE player_snapshot ADD COLUMN news TEXT")
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(player)")}
+    for name in ("first_name", "second_name"):
+        if cols and name not in cols:
+            conn.execute(f"ALTER TABLE player ADD COLUMN {name} TEXT")
 
 
 def apply_sql(conn, *files):

@@ -51,6 +51,7 @@ def test_snapshot_ep_copied_to_player_gw_ep_pre(tmp_db, fake_client):
     assert tmp_db.execute("select count(*) from player_gw where ep_pre is not null").fetchone()[0] == 0
     # a snapshot taken before gw1 is copied onto that gameweek's rows
     tmp_db.execute("delete from player_gw")
+    tmp_db.execute("delete from player_gw_stats")
     tmp_db.execute(
         "insert into player_snapshot (season, gw, player_id, collected_at, status, chance_next, ep_next, now_cost, selected_by_percent) values ('2026-27',1,?, 'x','a',100,7.5,100,1.0)", (snap[0]["player_id"],))
     collect.run(tmp_db, fake_client, "2026-27")
@@ -119,3 +120,71 @@ def test_collect_derives_season_when_omitted(tmp_db, fake_client):
     collect.run(tmp_db, fake_client)
     assert tmp_db.execute("select value from meta where key='current_season'").fetchone()[0] == "2026-27"
     assert tmp_db.execute("select count(distinct season) from player").fetchone()[0] == 1
+
+
+def test_collect_fills_stats(tmp_db, fake_client):
+    collect.run(tmp_db, fake_client, "2026-27")
+    r = tmp_db.execute("select * from player_gw_stats where gw = 1 and player_id = 8").fetchone()
+    assert r["season"] == "2026-27"
+    assert (r["xg"], r["xa"], r["xgi"], r["xgc"]) == (0.15, 0.30, 0.45, 0.85)
+    assert (r["goals"], r["assists"], r["clean_sheets"], r["goals_conceded"]) == (0, 1, 1, 0)
+    assert (r["minutes"], r["starts"], r["apps"], r["defcon_actions"]) == (80, 1, 1, 11)
+    assert count(tmp_db, "player_gw_stats") == 6
+
+
+def test_collect_defcon_hits_from_explain(tmp_db, fake_client):
+    collect.run(tmp_db, fake_client, "2026-27")
+    hits = dict(tmp_db.execute("select player_id, defcon_hits from player_gw_stats").fetchall())
+    assert hits[8] == 1      # explain has defensive_contribution points 2
+    assert hits[12] == 0     # no such explain entry
+    assert hits[1] == 0      # goalkeeper
+
+
+def test_collect_defcon_hits_sum_over_fixtures(tmp_db, fake_client):
+    live = fake_client.event_live(1)
+    fx = fake_client.fixtures()
+    team = fake_client.bootstrap()["elements"][1]["team"]
+    extra = {"id": 901, "event": 1, "team_h": 2, "team_a": team,
+             "team_h_difficulty": 3, "team_a_difficulty": 3, "finished": True}
+    for el in live["elements"]:
+        if el["id"] == 8:
+            el["explain"].append({"fixture": 901, "stats": [
+                {"identifier": "minutes", "points": 2, "value": 90, "points_modification": 0},
+                {"identifier": "defensive_contribution", "points": 2, "value": 10, "points_modification": 0}]})
+    fake_client.fixtures = lambda: fx + [extra]
+    fake_client.event_live = lambda gw: live
+    collect.run(tmp_db, fake_client, "2026-27")
+    r = tmp_db.execute("select * from player_gw_stats where player_id = 8").fetchone()
+    assert r["defcon_hits"] == 2 and r["apps"] == 2
+
+
+def test_collect_set_piece(tmp_db, fake_client):
+    collect.run(tmp_db, fake_client, "2026-27")
+    rows = {r["player_id"]: r for r in tmp_db.execute("select * from set_piece")}
+    assert set(rows) == {12, 13}
+    assert (rows[12]["penalties_order"], rows[12]["corners_order"], rows[12]["direct_fk_order"]) == (1, 1, None)
+    assert rows[13]["direct_fk_order"] == 2 and rows[12]["collected_at"]
+    # rerun with changed duties replaces the snapshot
+    boot = fake_client.bootstrap()
+    for e in boot["elements"]:
+        e["penalties_order"] = 1 if e["id"] == 26 else None
+        e["corners_and_indirect_freekicks_order"] = None
+        e["direct_freekicks_order"] = None
+    fake_client.bootstrap = lambda: boot
+    collect.run(tmp_db, fake_client, "2026-27")
+    rows = tmp_db.execute("select player_id, penalties_order from set_piece").fetchall()
+    assert [tuple(r) for r in rows] == [(26, 1)]
+
+
+def test_collect_stores_names(tmp_db, fake_client):
+    collect.run(tmp_db, fake_client, "2026-27")
+    r = tmp_db.execute("select first_name, second_name from player where player_id = 12").fetchone()
+    assert (r[0], r[1]) == ("Bukayo", "Saka")
+
+
+def test_collect_backfills_stats_for_old_gameweeks(tmp_db, fake_client):
+    collect.run(tmp_db, fake_client, "2026-27")
+    tmp_db.execute("delete from player_gw_stats")
+    collect.run(tmp_db, fake_client, "2026-27")
+    assert count(tmp_db, "player_gw_stats") == 6
+    assert count(tmp_db, "player_gw") == 6

@@ -4,7 +4,17 @@
    "id": 1,
    "stats": {
     "minutes": 90,
-    "total_points": 6
+    "total_points": 6,
+    "goals_scored": 0,
+    "assists": 0,
+    "clean_sheets": 1,
+    "goals_conceded": 0,
+    "starts": 1,
+    "expected_goals": "0.00",
+    "expected_assists": "0.00",
+    "expected_goal_involvements": "0.00",
+    "expected_goals_conceded": "0.85",
+    "defensive_contribution": 0
    },
    "explain": [
     {
@@ -50,7 +60,17 @@
    "id": 8,
    "stats": {
     "minutes": 80,
-    "total_points": 9
+    "total_points": 9,
+    "goals_scored": 0,
+    "assists": 1,
+    "clean_sheets": 1,
+    "goals_conceded": 0,
+    "starts": 1,
+    "expected_goals": "0.15",
+    "expected_assists": "0.30",
+    "expected_goal_involvements": "0.45",
+    "expected_goals_conceded": "0.85",
+    "defensive_contribution": 11
    },
    "explain": [
     {
@@ -73,6 +93,12 @@
        "points": 4,
        "value": 1,
        "points_modification": 0
+      },
+      {
+       "identifier": "defensive_contribution",
+       "points": 2,
+       "value": 11,
+       "points_modification": 0
       }
      ]
     }
@@ -82,7 +108,17 @@
    "id": 12,
    "stats": {
     "minutes": 67,
-    "total_points": 9
+    "total_points": 9,
+    "goals_scored": 0,
+    "assists": 0,
+    "clean_sheets": 0,
+    "goals_conceded": 1,
+    "starts": 1,
+    "expected_goals": "0.45",
+    "expected_assists": "0.10",
+    "expected_goal_involvements": "0.55",
+    "expected_goals_conceded": "0.85",
+    "defensive_contribution": 4
    },
    "explain": [
     {

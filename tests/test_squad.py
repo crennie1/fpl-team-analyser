@@ -16,13 +16,13 @@ def conn(tmp_db):
     c = tmp_db
     c.execute("INSERT INTO meta VALUES ('current_season', ?)", (SEASON,))
     for i, pos in enumerate(POS, start=1):
-        c.execute("INSERT INTO player VALUES (?,?,?,?,?)", (SEASON, i, f"P{i}", (i % 8) + 1, pos))
+        c.execute("INSERT INTO player (season, player_id, web_name, team_id, position) VALUES (?,?,?,?,?)", (SEASON, i, f"P{i}", (i % 8) + 1, pos))
         c.execute("INSERT INTO player_snapshot (season, gw, player_id, collected_at, status, chance_next, ep_next, now_cost, selected_by_percent) VALUES (?,?,?,?,?,?,?,?,?)",
                   (SEASON, 9, i, "2026-10-19T12:00:00", "a", None, 1.0, 50, 5.0))
     # extra candidates: 20 GK, 21 DEF (team 1), 22 MID cheap, 23 MID pricey
     for pid, pos, team, cost in [(20, "GK", 9, 40), (21, "DEF", 1, 50), (22, "MID", 9, 50),
                                  (23, "MID", 9, 150)]:
-        c.execute("INSERT INTO player VALUES (?,?,?,?,?)", (SEASON, pid, f"P{pid}", team, pos))
+        c.execute("INSERT INTO player (season, player_id, web_name, team_id, position) VALUES (?,?,?,?,?)", (SEASON, pid, f"P{pid}", team, pos))
         c.execute("INSERT INTO player_snapshot (season, gw, player_id, collected_at, status, chance_next, ep_next, now_cost, selected_by_percent) VALUES (?,?,?,?,?,?,?,?,?)",
                   (SEASON, 9, pid, "2026-10-19T12:00:00", "a", None, 1.0, cost, 5.0))
     c.commit()

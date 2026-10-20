@@ -30,11 +30,68 @@ def _bool(v):
     return 1 if str(v).strip().lower() in ("true", "1") else 0
 
 
+DEFCON_THRESHOLD = {"DEF": 10, "MID": 12, "FWD": 12}
+
+
+def _sum(values):
+    """Sum of the non-None values, or None when there are none."""
+    vals = [v for v in values if v is not None]
+    return sum(vals) if vals else None
+
+
+def _stats_rows(season, merged):
+    """player_gw_stats rows: one per (gw, player), summed over fixtures."""
+    seen, groups = set(), {}
+    for r in merged:
+        key = (int(r["GW"]), int(r["element"]), int(r["fixture"]))
+        if key in seen:        # the archive repeats some rows verbatim
+            continue
+        seen.add(key)
+        groups.setdefault(key[:2], []).append(r)
+    out = []
+    for (gw, pid), rs in sorted(groups.items()):
+        def col(name, conv):
+            return _sum([conv(r.get(name)) for r in rs])
+        dc = [_int(r.get("defensive_contribution")) for r in rs]
+        if any(v is not None for v in dc):
+            hits = sum(
+                1 for r, v in zip(rs, dc)
+                if v is not None and v >= DEFCON_THRESHOLD.get(POSITIONS[r["position"]], 10 ** 9))
+        else:
+            hits = None
+        mins = [_int(r["minutes"]) or 0 for r in rs]
+        out.append((
+            season, gw, pid, sum(mins), col("starts", _int),
+            col("expected_goals", _float), col("expected_assists", _float),
+            col("expected_goal_involvements", _float), col("expected_goals_conceded", _float),
+            col("goals_scored", _int), col("assists", _int), col("clean_sheets", _int),
+            col("goals_conceded", _int), _sum(dc), hits, sum(1 for m in mins if m > 0),
+        ))
+    return out
+
+
+def _set_season_meta(conn):
+    """backtest_season = newest history-loaded season, fit_season = the one before it."""
+    current = conn.execute("SELECT value FROM meta WHERE key = 'current_season'").fetchone()
+    seasons = sorted(
+        r[0] for r in conn.execute("SELECT DISTINCT season FROM player_gw")
+        if current is None or r[0] != current[0]
+    )
+    conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('backtest_season', ?)",
+                 (seasons[-1],))
+    if len(seasons) > 1:
+        conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('fit_season', ?)",
+                     (seasons[-2],))
+    else:
+        conn.execute("DELETE FROM meta WHERE key = 'fit_season'")
+
+
 def load(conn, season, merged_gw_csv, fixtures_csv, teams_csv):
-    """Replace `season` in team/player/fixture/player_gw; return player_gw row count."""
+    """Replace `season` in team/player/fixture/player_gw/player_gw_stats; return player_gw row count."""
     teams = _rows(teams_csv)
     fixtures = _rows(fixtures_csv)
-    merged = _rows(merged_gw_csv)
+    # 2024-25 lists managers (Assistant Manager chip) with position "AM"; they are not players.
+    merged = [r for r in _rows(merged_gw_csv) if r["position"] in POSITIONS]
 
     team_by_name = {t["name"]: int(t["id"]) for t in teams}
     fix_by_id = {int(f["id"]): f for f in fixtures}
@@ -45,7 +102,7 @@ def load(conn, season, merged_gw_csv, fixtures_csv, teams_csv):
         latest[int(r["element"])] = r
 
     with conn:
-        for table in ("player_gw", "fixture", "player", "team"):
+        for table in ("player_gw_stats", "player_gw", "fixture", "player", "team"):
             conn.execute(f"DELETE FROM {table} WHERE season = ?", (season,))
 
         conn.executemany(
@@ -95,9 +152,13 @@ def load(conn, season, merged_gw_csv, fixtures_csv, teams_csv):
             " total_points, was_home, opponent_team, fdr, ep_pre) VALUES (?,?,?,?,?,?,?,?,?,?)",
             rows,
         )
-        conn.execute(
-            "INSERT OR REPLACE INTO meta (key, value) VALUES ('backtest_season', ?)", (season,)
+        conn.executemany(
+            "INSERT OR REPLACE INTO player_gw_stats (season, gw, player_id, minutes, starts,"
+            " xg, xa, xgi, xgc, goals, assists, clean_sheets, goals_conceded,"
+            " defcon_actions, defcon_hits, apps) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            _stats_rows(season, merged),
         )
+        _set_season_meta(conn)
         return conn.execute(
             "SELECT COUNT(*) FROM player_gw WHERE season = ?", (season,)
         ).fetchone()[0]

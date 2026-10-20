@@ -12,6 +12,8 @@ CREATE TABLE IF NOT EXISTS player (
     web_name TEXT NOT NULL,
     team_id INTEGER NOT NULL,
     position TEXT NOT NULL CHECK (position IN ('GK','DEF','MID','FWD')),
+    first_name TEXT,
+    second_name TEXT,
     PRIMARY KEY (season, player_id)
 );
 
@@ -55,6 +57,40 @@ CREATE TABLE IF NOT EXISTS player_gw (
     fdr INTEGER,
     ep_pre REAL,
     PRIMARY KEY (season, gw, player_id, fixture_id)
+);
+
+-- One row per player per gameweek, summed over that gameweek's fixtures.
+-- apps = fixtures with minutes > 0; defcon_hits = fixtures where the player hit his
+-- position's DefCon threshold (NULL defcon_* when the source has no such data).
+CREATE TABLE IF NOT EXISTS player_gw_stats (
+    season TEXT NOT NULL,
+    gw INTEGER NOT NULL,
+    player_id INTEGER NOT NULL,
+    minutes INTEGER,
+    starts INTEGER,
+    xg REAL,
+    xa REAL,
+    xgi REAL,
+    xgc REAL,
+    goals INTEGER,
+    assists INTEGER,
+    clean_sheets INTEGER,
+    goals_conceded INTEGER,
+    defcon_actions INTEGER,
+    defcon_hits INTEGER,
+    apps INTEGER,
+    PRIMARY KEY (season, gw, player_id)
+);
+
+-- Latest set-piece duties snapshot only (1 = first choice).
+CREATE TABLE IF NOT EXISTS set_piece (
+    season TEXT NOT NULL,
+    player_id INTEGER NOT NULL,
+    penalties_order INTEGER,
+    corners_order INTEGER,
+    direct_fk_order INTEGER,
+    collected_at TEXT,
+    PRIMARY KEY (season, player_id)
 );
 
 CREATE TABLE IF NOT EXISTS meta (

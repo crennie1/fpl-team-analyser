@@ -109,7 +109,12 @@
    "ep_next": "6.0",
    "now_cost": 61,
    "selected_by_percent": "44.1",
-   "news": ""
+   "news": "",
+   "first_name": "David",
+   "second_name": "Raya Martin",
+   "penalties_order": null,
+   "corners_and_indirect_freekicks_order": null,
+   "direct_freekicks_order": null
   },
   {
    "id": 8,
@@ -121,7 +126,12 @@
    "ep_next": "7.5",
    "now_cost": 60,
    "selected_by_percent": "53.6",
-   "news": "Knee injury - 25% chance of playing"
+   "news": "Knee injury - 25% chance of playing",
+   "first_name": "Riccardo",
+   "second_name": "Calafiori",
+   "penalties_order": null,
+   "corners_and_indirect_freekicks_order": null,
+   "direct_freekicks_order": null
   },
   {
    "id": 12,
@@ -133,7 +143,12 @@
    "ep_next": "2.5",
    "now_cost": 96,
    "selected_by_percent": "16.8",
-   "news": ""
+   "news": "",
+   "first_name": "Bukayo",
+   "second_name": "Saka",
+   "penalties_order": 1,
+   "corners_and_indirect_freekicks_order": 1,
+   "direct_freekicks_order": null
   },
   {
    "id": 13,
@@ -145,7 +160,12 @@
    "ep_next": "8.0",
    "now_cost": 73,
    "selected_by_percent": "11.0",
-   "news": ""
+   "news": "",
+   "first_name": "Declan",
+   "second_name": "Rice",
+   "penalties_order": null,
+   "corners_and_indirect_freekicks_order": null,
+   "direct_freekicks_order": 2
   },
   {
    "id": 26,
@@ -157,7 +177,12 @@
    "ep_next": "2.0",
    "now_cost": 75,
    "selected_by_percent": "6.3",
-   "news": ""
+   "news": "",
+   "first_name": "Kai",
+   "second_name": "Havertz",
+   "penalties_order": null,
+   "corners_and_indirect_freekicks_order": null,
+   "direct_freekicks_order": null
   },
   {
    "id": 194,
@@ -169,7 +194,12 @@
    "ep_next": "5.0",
    "now_cost": 50,
    "selected_by_percent": "0.9",
-   "news": ""
+   "news": "",
+   "first_name": "Jonathan",
+   "second_name": "Thomas-Asante",
+   "penalties_order": null,
+   "corners_and_indirect_freekicks_order": null,
+   "direct_freekicks_order": null
   }
  ]
 }
