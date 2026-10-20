@@ -7,13 +7,16 @@ goals x GOAL_PTS + assists x 3 from player_gw_stats. The predicted side is
 v_xp2_fixture.att_pred: the attacking term of forecast v2 with calib 1.0, so the
 fit uses exactly the forecast's own formula (it is never re-implemented here).
 Results are written to model_param; the backtest then scores them on a different
-season (meta.backtest_season). A position with nothing predicted keeps 1.0.
+season (meta.backtest_season). A position with under 50 predicted attacking points keeps 1.0 and fitted values are
+clamped to [0.5, 2.0] (ruling V5).
 """
 import argparse
 
 from fpl import db
 
 POSITIONS = ("GK", "DEF", "MID", "FWD")
+MIN_PRED_POINTS = 50.0          # V5: below this many predicted attacking points, keep 1.0
+MIN_CALIB, MAX_CALIB = 0.5, 2.0  # V5: fitted values are clamped to this range
 
 
 def run(conn, from_gw: int = 6) -> dict:
@@ -41,7 +44,9 @@ def run(conn, from_gw: int = 6) -> dict:
         GROUP BY f.position""", (season,)):
         pred[pos], actual[pos] = p_sum or 0.0, a_sum or 0.0
     conn.execute("DROP TABLE temp.fit_pred")
-    calib = {p: (actual[p] / pred[p] if pred[p] > 0 else 1.0) for p in POSITIONS}
+    # V5: fit a position only with enough predicted points to be meaningful, and clamp
+    calib = {p: (min(MAX_CALIB, max(MIN_CALIB, actual[p] / pred[p]))
+                 if pred[p] >= MIN_PRED_POINTS else 1.0) for p in POSITIONS}
     for pos, value in calib.items():
         conn.execute("INSERT INTO model_param (name, position, value) VALUES ('calib_att', ?, ?) "
                      "ON CONFLICT(name, position) DO UPDATE SET value = excluded.value",

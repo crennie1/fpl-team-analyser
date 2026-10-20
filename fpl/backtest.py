@@ -139,6 +139,8 @@ def _set_meta(conn, key: str, value: str):
 def run(conn, season: str, from_gw: int = 6) -> dict:
     # Intermediate results live in TEMP tables so the heavy views run once.
     result = _score_one_gw(conn, season, from_gw)
+    row = conn.execute("SELECT value FROM meta WHERE key = 'fit_season'").fetchone()
+    result["fit_season"] = row[0] if row else "the earlier"
     result["three_gw"] = _three_gw(conn, season, from_gw)
     _drop_temp(conn)
     result["source_1gw"] = choose_source(result)
@@ -260,6 +262,7 @@ def write_report(result: dict, path: Path) -> None:
     s1, s3 = result["source_1gw"], result["source_3gw"]
     scaling = (", scaled by how many fixtures the player has and how hard they are"
                if s3 == "fpl_ep" else "")
+    fit = result.get("fit_season", "the fit")
     cur = result.get("current_season")
     if cur is None:
         current = ("Pending until enough gameweeks (about GW12): the current season has fewer "
@@ -279,7 +282,7 @@ absolute error (MAE) in FPL points per player-gameweek; lower is better. Only pl
 who were in a squad (minutes > 0 or start probability > 0) are scored.
 
 **How forecast v2 was tested.** Its one fitted parameter (the attacking-points scale
-factor `calib_att`, per position) was fitted on the 2024-25 season only
+factor `calib_att`, per position) was fitted on the {fit} season only
 (`python -m fpl.fit`). It is scored here on {result['season']}, a season it never saw, so
 its result is out of sample. The v2 DefCon and clean-sheet parts have no fitted parameters.
 
@@ -331,10 +334,11 @@ Does the choice above hold on the live season?
 
 ## Caveats
 
-- **In-sample caveat for v1:** the fixture-difficulty (FDR) multipliers in the v1 model
-  were fit on this same season ({result['season']}), so the v1 model's MAE here is slightly
-  optimistic. The baselines have no such advantage, and v2's parameter was fitted on
-  a different season, so v2's score carries no such optimism.
+- **What was fitted where:** v1's fixture-difficulty (FDR) multipliers and v2's `calib_att`
+  were both fitted on {fit} and are scored here on {result['season']}, a different season, so
+  both results are out of sample. v1's MAE moved slightly from earlier reports (1.880 to 1.876,
+  and FPL's 3-GW 3.630 to 3.635) because the fixture-difficulty multipliers are now fitted on
+  the earlier season.
 - A player's first appearance has no last-5 history, so those rows are dropped for all methods.
 - Double gameweeks: actual points and predictions are summed over both fixtures.
 - The comparison covers only the gameweeks listed above, not the whole season.

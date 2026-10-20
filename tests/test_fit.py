@@ -19,7 +19,8 @@ def _mid_pair(conn, goals_gw6=1, assists_gw6=1):
     refresh(conn)
 
 
-def test_fit_ratio_per_position(v2db):
+def test_fit_ratio_per_position(v2db, monkeypatch):
+    monkeypatch.setattr(fit, "MIN_PRED_POINTS", 1.0)    # tiny fixture; V5 threshold tested below
     _mid_pair(v2db)       # predicted 10 per player; actual 1 goal x 5 + 1 assist x 3 = 8
     pred = v2db.execute(
         "SELECT SUM(att_pred) FROM v_xp2_fixture WHERE season = ? AND as_of_gw = 6 AND gw = 6",
@@ -32,7 +33,8 @@ def test_fit_ratio_per_position(v2db):
     assert stored == pytest.approx(0.8)
 
 
-def test_fit_zero_denominator_keeps_1(v2db):
+def test_fit_zero_denominator_keeps_1(v2db, monkeypatch):
+    monkeypatch.setattr(fit, "MIN_PRED_POINTS", 1.0)
     _mid_pair(v2db)
     calib = fit.run(v2db)
     for pos in ("GK", "DEF", "FWD"):          # nothing predicted for these positions
@@ -42,7 +44,8 @@ def test_fit_zero_denominator_keeps_1(v2db):
     assert rows["FWD"] == 1.0 and rows["MID"] == pytest.approx(0.8)
 
 
-def test_fit_changes_the_forecast_and_is_idempotent(v2db):
+def test_fit_changes_the_forecast_and_is_idempotent(v2db, monkeypatch):
+    monkeypatch.setattr(fit, "MIN_PRED_POINTS", 1.0)
     _mid_pair(v2db)
     def xp():
         return v2db.execute("SELECT xp_v2 FROM v_xp2 WHERE season = ? AND player_id = 1 "
@@ -52,3 +55,19 @@ def test_fit_changes_the_forecast_and_is_idempotent(v2db):
     fit.run(v2db)                              # second fit sees calib != 1 but must give the same
     assert fit.run(v2db)["MID"] == pytest.approx(0.8)
     assert xp() == pytest.approx(before - 0.2 * 10)    # attacking part scaled by 0.8
+
+
+def test_fit_needs_50_predicted_points(v2db):
+    _mid_pair(v2db)                      # MID predicts only 20 points in total
+    assert fit.run(v2db)["MID"] == 1.0   # < 50: not fitted (V5)
+    rows = {r["position"]: r["value"] for r in v2db.execute(
+        "SELECT position, value FROM model_param WHERE name = 'calib_att'")}
+    assert rows["MID"] == 1.0
+
+
+def test_fit_clamps_to_0_5_and_2(v2db, monkeypatch):
+    monkeypatch.setattr(fit, "MIN_PRED_POINTS", 1.0)
+    _mid_pair(v2db, goals_gw6=0, assists_gw6=0)       # actual 0 / predicted 20 -> clamp up
+    assert fit.run(v2db)["MID"] == 0.5
+    v2db.execute("UPDATE player_gw_stats SET goals = 10 WHERE gw = 6")   # 100 / 20 = 5 -> clamp down
+    assert fit.run(v2db)["MID"] == 2.0

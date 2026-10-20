@@ -51,6 +51,7 @@ def test_backtest_sets_forecast_source(db_with_sample):
 
 
 def test_report_contains_table(db_with_sample, tmp_path):
+    db_with_sample.execute("INSERT INTO meta (key, value) VALUES ('fit_season', '2024-25')")
     _sample_rows(db_with_sample, False)
     r = backtest.run(db_with_sample, "2026-27", from_gw=6)
     p = tmp_path / "r" / "backtest.md"
@@ -59,7 +60,7 @@ def test_report_contains_table(db_with_sample, tmp_path):
     assert "| Method | MAE | Rows |" in text
     for label in backtest.LABELS.values():
         assert label in text
-    assert "fit" in text and "same season" in text
+    assert "fitted on 2024-25" in text and "same season" not in text
 
 
 def test_backtest_excludes_null_ep_gameweek_for_all_methods(db_with_sample):
@@ -188,6 +189,7 @@ def test_current_season_check_needs_five_gameweeks(db_with_sample, monkeypatch):
 
 
 def test_report_shows_current_season_table_and_sources(db_with_sample, tmp_path):
+    db_with_sample.execute("INSERT INTO meta (key, value) VALUES ('fit_season', '2024-25')")
     _three_gw_rows(db_with_sample)
     r = backtest.run(db_with_sample, "2026-27", from_gw=6)
     r["current_season"] = dict(r, covered_gws=[8, 9, 10, 11, 12])
@@ -211,3 +213,16 @@ def test_report_has_three_gw_table(db_with_sample, tmp_path):
     assert "Start gameweeks (1): 6. Rows scored: 1 per method." in text
     assert "15.000" not in text and "| FPL ep_pre, scaled over 3 GWs (R20) | 3.000 | 1 |" in text
     assert "separately" in text and "strictly lower" in text
+
+
+def test_report_caveat_names_fit_season(db_with_sample, tmp_path):
+    db_with_sample.execute("INSERT INTO meta (key, value) VALUES ('fit_season', '2024-25')")
+    _three_gw_rows(db_with_sample)
+    r = backtest.run(db_with_sample, "2026-27", from_gw=6)
+    p = tmp_path / "b.md"
+    backtest.write_report(r, p)
+    text = p.read_text()
+    assert "both fitted on 2024-25 and are scored here on 2026-27" in text
+    assert "both results are out of sample" in text
+    assert "In-sample caveat" not in text and "carries no such optimism" not in text
+    assert "1.880 to 1.876" in text
