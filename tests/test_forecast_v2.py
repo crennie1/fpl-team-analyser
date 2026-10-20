@@ -283,6 +283,48 @@ def test_xp2_next_view(v2db):
     assert r["cs_chance_next"] == pytest.approx(math.exp(-0.3))
 
 
+def test_xp2_next_cs_display_in_double_gameweek(v2db):
+    """cs_chance_next sums the fixtures (for xP); cs_display_next is P(at least one clean sheet)."""
+    mirror_league(v2db)
+    v2db.execute("UPDATE meta SET value = '8' WHERE key = 'next_gw'")   # team 1 has a double
+    v2db.commit()
+    r = one(v2db, "SELECT * FROM v_xp2_next WHERE player_id=1")
+    p = math.exp(-0.3)
+    assert r["cs_chance_next"] == pytest.approx(2 * p)
+    assert r["cs_display_next"] == pytest.approx(1 - (1 - p) ** 2)
+
+
+def test_gk_goal_worth_10(v2db):
+    """FPL gives a goalkeeper's goal 10 points (GOAL_PTS GK 10, DEF 6)."""
+    for pid, team in ((30, 1), (31, 2)):           # mirrored, so the opponent xG ratio is 1.0
+        add_player(v2db, pid, "GK", team)
+        for gw in range(1, 7):
+            add_stat_row(v2db, gw, pid, team, xg=0.3)
+    refresh(v2db)
+    r = one(v2db, "SELECT att_pred FROM v_xp2_fixture WHERE season=? AND player_id=30 "
+                  "AND as_of_gw=7 AND gw=7", CUR)
+    assert r["att_pred"] == pytest.approx(0.3 * 10)
+
+
+def test_no_stats_rows_give_no_phantom_clean_sheet(v2db):
+    """Without player_gw_stats, xG is unknown (NULL), not 0, so clean-sheet chance is not 100%."""
+    add_player(v2db, 1, "DEF", 1)
+    add_player(v2db, 2, "DEF", 2)
+    for gw in range(1, 7):
+        for pid, team in ((1, 1), (2, 2)):
+            add_stat_row(v2db, gw, pid, team)
+    v2db.execute("DELETE FROM player_gw_stats")
+    refresh(v2db)
+    assert one(v2db, "SELECT xg FROM v_pf_stat WHERE season=? AND player_id=1 AND gw=3",
+               CUR)["xg"] is None
+    cs = one(v2db, "SELECT cs_chance FROM v_cs_chance WHERE season=? AND player_id=1 AND gw=7 "
+                   "AND as_of_gw=7", CUR)["cs_chance"]
+    assert cs is None or cs < 1.0
+    xg = one(v2db, "SELECT xg_pm FROM v_team_conceded WHERE season=? AND team_id=2 "
+                   "AND position='DEF' AND as_of_gw=7", CUR)["xg_pm"]
+    assert xg is None
+
+
 def test_fdr_multiplier_uses_fit_season(db_with_sample):
     conn = db_with_sample
     _insert(conn, "player", [{"season": "2024-25", "player_id": 201, "web_name": "Fit",
@@ -304,3 +346,15 @@ def test_exp_function_available(tmp_path):
     conn = db.connect(tmp_path / "x.db")
     assert conn.execute("SELECT exp(1)").fetchone()[0] == pytest.approx(math.e)
     assert conn.execute("SELECT exp(NULL)").fetchone()[0] is None
+
+
+def test_fallback_functions_match_sqlite(tmp_path):
+    """Force the Python fallbacks on a fresh connection: NULL in -> NULL, ln(x <= 0) -> NULL."""
+    import sqlite3
+    conn = sqlite3.connect(":memory:")
+    db.register_functions(conn, force=True)
+    q = lambda e: conn.execute(f"SELECT {e}").fetchone()[0]   # noqa: E731
+    assert q("exp(0)") == 1.0 and q("exp(NULL)") is None
+    assert q("ln(1)") == 0.0 and q("ln(NULL)") is None
+    assert q("ln(0)") is None and q("ln(-2)") is None
+    assert q("1.0 - exp(ln(1.0 - 0.25) + ln(1.0 - 0.5))") == pytest.approx(1 - 0.75 * 0.5)

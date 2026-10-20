@@ -76,20 +76,21 @@ function shirt(club,initials){
  return `<svg class="kit" viewBox="0 0 60 60"><defs>${defs}</defs><path d="M14 22 L4 26 L1 14 L16 5 Z" fill="${sl}"/><path d="M46 22 L56 26 L59 14 L44 5 Z" fill="${sl}"/><path d="M16 5 Q30 13 44 5 L46 22 L46 57 L14 57 L14 22 Z" fill="${esc(body)}" stroke="rgba(0,0,0,.35)" stroke-width="1"/><path d="M24 6 Q30 11 36 6" fill="none" stroke="${collar}" stroke-width="2"/>${lbl}</svg>`}
 const oppTxt=f=>`${esc(f.opp)} (${f.home?'H':'A'})`;
 const fdr=f=>Math.min(5,Math.max(2,f.fdr||3));
+const XP_COLOUR={green:'#38d39f',amber:'#fff',red:'#ff5c7a'};   // v1 rule: chance <= 50% is red
 function card(p){const i=ALL.indexOf(p),f=p.fixtures[0],xp=p.xp;
  return `<div class="p${p===sel?' sel':''}${p.sell?' sell':''}" data-i="${i}" style="--club:${esc(kitOf(p.club).body==='#ffffff'?kitOf(p.club).sleeves:kitOf(p.club).body)}" onclick="pick(${i})">
  ${p.sell?'<span class="selltag">↘ SELL</span>':''}
  <div class="pos">${esc(p.pos)}${p.captain?' · C':''}${p.flag?' · <span class="fl">⚠</span>':''}</div>
  ${shirt(p.club,p.initials)}
  <div class="nm">${esc(p.name)}</div>
- <div class="xp" style="color:${xp>=5?'#38d39f':xp<2.5?'#ff5c7a':'#fff'}">${num(xp)}<small> xP</small></div>
+ <div class="xp" style="color:${XP_COLOUR[p.colour]||'#fff'}">${num(xp)}<small> xP</small></div>
  ${f?`<span class="opp d${fdr(f)}">${oppTxt(f)}</span>`:'<span class="opp d3">–</span>'}
  <div class="bar" title="${p.pos==='GK'?'Clean sheet chance: how likely his team keeps a clean sheet':'DefCon chance: how likely he earns the 2 defensive-contribution points'}"><i style="width:${p.bar_pct||0}%"></i></div>
  <div class="dc">${esc(p.bar_label)} ${p.bar_pct==null?'–':p.bar_pct+'%'}</div></div>`}
 function sellBlock(p){const s=p.sell;if(!s)return '';
  const hit=s.hit?` · <b>−${s.hit} hit</b>`:'';
  const inst=s.starts_instead_of?` (starts instead of ${esc(s.starts_instead_of)})`:'';
- return `<div class="swap"><div class="h">↘ Suggested sell</div><div class="r"><div style="width:40px">${shirt(s.to_club,(s.to_full_name||s.to_name).split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase())}</div><div><b>${esc(s.to_full_name)}</b> <span class="note">${esc(s.to_club)}${inst}</span><div class="note">extra points over the next 3 gameweeks${hit}</div></div><div class="gain">+${num(s.gain3)}</div></div><div class="note sell-note">Best single move — each suggestion is checked on its own against your current squad, so pick one rather than making all of them.</div></div>`}
+ return `<div class="swap"><div class="h">↘ Suggested sell</div><div class="r"><div style="width:40px">${shirt(s.to_club,s.initials)}</div><div><b>${esc(s.to_full_name)}</b> <span class="note">${esc(s.to_club)}${inst}</span><div class="note">extra points over the next 3 gameweeks${hit}</div></div><div class="gain">+${num(s.gain3)}</div></div><div class="note sell-note">Best single move — each suggestion is checked on its own against your current squad, so pick one rather than making all of them.</div></div>`}
 function draw(){
  document.querySelector('.wrap').appendChild(document.getElementById('panel'));
  document.getElementById('grades').innerHTML=Object.entries(DATA.grades).map(([a,g])=>`<div class="g g${esc(g)}"><b>${esc(g)}</b><span>${esc(a)}</span></div>`).join('')+`<div class="proj"><b>${num(DATA.projected)} pts</b><span>projected · average manager ${num(DATA.average)}</span></div>`;
@@ -108,7 +109,7 @@ function draw(){
  <div class="kp" style="margin-top:12px"><div><b>${num(p.xp)}</b><span>xP next GW</span></div><div><b>${num(p.xp3)}</b><span>xP next 3</span></div><div><b>${p.bar_pct==null?'–':p.bar_pct+'%'}</b><span>${chanceLbl}</span></div></div>
  <div class="note">${expl}</div>
  <div class="sec">Next fixtures</div><div class="fx">${p.fixtures.map(f=>`<div class="d${fdr(f)}">${oppTxt(f)}</div>`).join('')||'<span class="note">No fixtures scheduled</span>'}</div>
- <div class="sec">Last 6 gameweeks</div>${sb('Form (pts/gm)',l6.form,10,num(l6.form))}${sb('xG',l6.xg,7,num(l6.xg))}${sb('xA',l6.xa,7,num(l6.xa))}${gk?'':sb('DefCon hits',l6.defcon_pct,100,l6.defcon_pct==null?'–':l6.defcon_pct+'%')}
+ <div class="sec">Last 6 gameweeks</div>${sb('Form (pts/gm)',l6.form,10,num(l6.form))}${sb('xG',l6.xg,7,num(l6.xg))}${sb('xA',l6.xa,7,num(l6.xa))}${gk?'':sb('DefCon hits',l6.defcon_pct,100,l6.defcon_apps?`${l6.defcon_hits} of ${l6.defcon_apps}`:'–')}
  <div class="sec">Opponent weakness</div><div class="note">${p.weakness?esc(p.weakness)+'.':'Not enough data yet.'}</div>
  <div class="sec">Set pieces</div><div class="note">${p.set_pieces?esc(p.set_pieces):'No set-piece duties'}</div>`}
 function pick(i){sel=ALL[i];draw();

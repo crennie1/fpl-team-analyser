@@ -71,3 +71,16 @@ def test_fit_clamps_to_0_5_and_2(v2db, monkeypatch):
     assert fit.run(v2db)["MID"] == 0.5
     v2db.execute("UPDATE player_gw_stats SET goals = 10 WHERE gw = 6")   # 100 / 20 = 5 -> clamp down
     assert fit.run(v2db)["MID"] == 2.0
+
+
+def test_fit_gk_goal_worth_10(v2db, monkeypatch):
+    """Actual GK attacking points use 10 per goal, the same GOAL_PTS as the forecast."""
+    monkeypatch.setattr(fit, "MIN_PRED_POINTS", 1.0)
+    for pid, team in ((1, 1), (2, 2)):
+        add_player(v2db, pid, "GK", team)
+        for gw in range(1, 7):
+            add_stat_row(v2db, gw, pid, team, xg=0.8)      # predicted gw 6: 0.8 x 10 = 8 each
+    v2db.execute("UPDATE player_gw_stats SET goals = 1 WHERE player_id = 1 AND gw = 6")
+    v2db.execute("UPDATE meta SET value = ? WHERE key = 'fit_season'", (CUR,))
+    refresh(v2db)
+    assert fit.run(v2db)["GK"] == pytest.approx(10 / 16)

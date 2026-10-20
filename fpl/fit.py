@@ -35,8 +35,8 @@ def run(conn, from_gw: int = 6) -> dict:
     actual = {p: 0.0 for p in POSITIONS}
     for pos, p_sum, a_sum in conn.execute("""
         SELECT f.position, SUM(f.pred),
-               SUM(COALESCE(s.goals, 0) * CASE f.position WHEN 'MID' THEN 5 WHEN 'FWD' THEN 4
-                                                         ELSE 6 END
+               SUM(COALESCE(s.goals, 0) * CASE f.position WHEN 'GK' THEN 10 WHEN 'MID' THEN 5
+                                                         WHEN 'FWD' THEN 4 ELSE 6 END
                    + COALESCE(s.assists, 0) * 3)
         FROM fit_pred AS f
         LEFT JOIN player_gw_stats AS s

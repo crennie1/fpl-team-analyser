@@ -130,7 +130,8 @@ CREATE TABLE IF NOT EXISTS xp_next_cache (
     start_prob REAL,
     xp_source TEXT,
     defcon_chance REAL,
-    cs_chance REAL
+    cs_chance REAL,
+    cs_display REAL
 );
 
 -- Fitted forecast parameters (written by the backtest fit; a missing row means factor 1.0).

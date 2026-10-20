@@ -238,7 +238,8 @@ GROUP BY season, player_id, gw, as_of_gw;
 -- xp_source names what was actually used: 'fpl_ep', 'v2' or 'model' when both horizons
 -- agree, otherwise the 1-gameweek source then the 3-gameweek one, e.g. 'fpl_ep/v2'.
 -- defcon_chance and cs_chance are descriptive v2 numbers for the upcoming gameweek and
--- always show, whichever source is chosen.
+-- always show, whichever source is chosen. cs_display is the clean-sheet chance the app
+-- shows: 1 - Π(1 - p) over a double gameweek's fixtures (cs_chance is their sum).
 --
 -- The season / next_gw filters are written as scalar subqueries on the views
 -- below (not as joins to a CTE) so SQLite can push them down and only forecast
@@ -273,6 +274,7 @@ src AS (
 ),
 pick AS (            -- which number does each horizon use? (R20 for fpl_ep)
     SELECT n.*, sn.ep_next, v2.xp_v2_next, v2.xp_v2_next3, v2.defcon_chance_next, v2.cs_chance_next,
+           v2.cs_display_next,
            (src.s1 = 'fpl_ep' AND sn.ep_next IS NOT NULL
             AND COALESCE(n.mult_next, 0) > 0) AS ep1,
            (src.s3 = 'fpl_ep' AND sn.ep_next IS NOT NULL
@@ -298,6 +300,7 @@ SELECT p.player_id,
        fm.start_prob,
        CASE WHEN p.used1 = p.used3 THEN p.used1 ELSE p.used1 || '/' || p.used3 END AS xp_source,
        p.defcon_chance_next AS defcon_chance,
-       p.cs_chance_next AS cs_chance
+       p.cs_chance_next AS cs_chance,
+       p.cs_display_next AS cs_display
 FROM used AS p
 JOIN form AS fm ON fm.player_id = p.player_id;

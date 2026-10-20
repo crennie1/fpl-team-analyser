@@ -9,7 +9,7 @@
 --                + CS_PTS × cs_chance                   clean-sheet points
 --                + 2 × defcon_chance ]                  DefCon bonus
 -- A double gameweek sums its fixtures; a blank gameweek is 0.
--- GOAL_PTS: GK/DEF 6, MID 5, FWD 4.   CS_PTS: GK/DEF 4, MID 1, FWD 0.
+-- GOAL_PTS: GK 10, DEF 6, MID 5, FWD 4.   CS_PTS: GK/DEF 4, MID 1, FWD 0.
 --
 -- In plain English, component by component:
 --  start_prob    Same as v1: share of the last 5 loaded gameweeks' minutes, capped at 1,
@@ -53,7 +53,8 @@
 --    (equal split if he played none). Points come per fixture, so they need no split.
 --  * "per match" = per fixture the team played in the window.
 --  * A double gameweek's DefCon chance is 1 - Π(1 - p) over its fixtures; its
---    clean-sheet chance and expected points are plain sums.
+--    clean-sheet chance and expected points are plain sums (the app displays the
+--    clean-sheet chance as 1 - Π(1 - p) too: cs_display_next).
 --
 -- View chain:
 --   v_pf_stat         one row per player per fixture played: points, split xG, split DefCon
@@ -106,7 +107,7 @@ SELECT s.season, s.gw, s.fixture_id, s.player_id, pl.position,
        CASE WHEN s.was_home = 1 THEN f.team_h ELSE f.team_a END AS team_id,   -- his club that day
        s.opponent_team AS opp_id,
        s.total_points AS pts,
-       s.share * COALESCE(st.xg, 0) AS xg,
+       s.share * st.xg AS xg,                         -- NULL without a stats row (unknown, not 0)
        s.share * st.defcon_hits AS defcon_hits       -- stays NULL when the season has no DefCon data
 FROM fixture_share AS s
 JOIN player AS pl ON pl.season = s.season AND pl.player_id = s.player_id
@@ -142,7 +143,9 @@ against AS (
     GROUP BY season, gw, opp_id, position
 )
 SELECT m.season, m.gw, m.team_id, p.position, m.matches,
-       COALESCE(a.pts, 0) AS pts, COALESCE(a.xg, 0) AS xg, a.defcon_hits
+       COALESCE(a.pts, 0) AS pts,
+       CASE WHEN a.team_id IS NULL THEN 0 ELSE a.xg END AS xg,   -- NULL: no stats rows
+       a.defcon_hits
 FROM v_team_gw AS m
 CROSS JOIN positions AS p
 LEFT JOIN against AS a
@@ -308,11 +311,11 @@ WITH components AS (
                 ELSE MIN(0.95, th.defcon_rate * ow.defcon_ratio) END AS defcon_chance,
            -- attacking points: calibrated (goals + assists) x opponent leakiness
            COALESCE(mp.value, 1.0)
-             * (COALESCE(th.xg90, 0) * CASE pl.position WHEN 'MID' THEN 5 WHEN 'FWD' THEN 4 ELSE 6 END
+             * (COALESCE(th.xg90, 0) * CASE pl.position WHEN 'GK' THEN 10 WHEN 'MID' THEN 5 WHEN 'FWD' THEN 4 ELSE 6 END
                 + COALESCE(th.xa90, 0) * 3)
              * ow.xg_ratio AS att_pts,
            -- the same attacking term with calib 1.0: what fit.py calibrates against
-           (COALESCE(th.xg90, 0) * CASE pl.position WHEN 'MID' THEN 5 WHEN 'FWD' THEN 4 ELSE 6 END
+           (COALESCE(th.xg90, 0) * CASE pl.position WHEN 'GK' THEN 10 WHEN 'MID' THEN 5 WHEN 'FWD' THEN 4 ELSE 6 END
                 + COALESCE(th.xa90, 0) * 3)
              * ow.xg_ratio AS att_raw
     FROM v_xp2_slot AS s
@@ -378,7 +381,12 @@ SELECT player_id,
        SUM(xp_v2) AS xp_v2_next3,
        -- DefCon chance in the upcoming gameweek: 1 - Π(1 - p), as in v_defcon_chance
        1.0 - exp(SUM(CASE WHEN gw = nxt THEN ln(1.0 - defcon_chance) END)) AS defcon_chance_next,
-       SUM(CASE WHEN gw = nxt THEN cs_chance END) AS cs_chance_next
+       SUM(CASE WHEN gw = nxt THEN cs_chance END) AS cs_chance_next,
+       -- what the app shows as "Clean sheet %": P(at least one clean sheet) = 1 - Π(1 - p)
+       -- (the sum above can pass 100% in a double gameweek; it stays the input to xP)
+       CASE WHEN MAX(CASE WHEN gw = nxt THEN cs_chance END) >= 1.0 THEN 1.0
+            ELSE 1.0 - exp(SUM(CASE WHEN gw = nxt THEN ln(1.0 - cs_chance) END)) END
+         AS cs_display_next
 FROM (SELECT *, (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'next_gw') AS nxt
       FROM v_xp2_fixture
       WHERE season = (SELECT value FROM meta WHERE key = 'current_season')

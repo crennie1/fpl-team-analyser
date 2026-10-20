@@ -156,7 +156,8 @@ def test_v2_chosen_only_if_strictly_better():
 def test_per_horizon_sources(db_with_sample):
     conn = db_with_sample
     _three_gw_rows(conn)
-    # gw 7 scores 0: 3-GW actual = 8. v2 predicts 3 per gw (9 over 3), last-5 x 3 = 12,
+    # gw 7 scores 0: 3-GW actual = 8. v2 predicts 2 per gw (6 over 3: appearance points only,
+    # no stats rows so no xG and no clean-sheet chance), last-5 x 3 = 12,
     # FPL scaled = 15, model ~12: v2 wins the 3-GW table. 1-GW: FPL's 5 is perfect.
     conn.execute("UPDATE player_gw SET total_points = 0 WHERE season='2026-27' AND gw = 7 AND player_id = 1")
     r = backtest.run(conn, "2026-27", from_gw=6)
@@ -166,9 +167,9 @@ def test_per_horizon_sources(db_with_sample):
     x = conn.execute("SELECT * FROM v_xp_next WHERE player_id = 1").fetchone()
     assert x["xp_source"] == "fpl_ep/v2"
     assert x["xp_next"] == pytest.approx(5.5)           # FPL ep_next for the coming gameweek
-    assert x["xp_next3"] == pytest.approx(9.0)          # v2: 3.0 in each of gws 6-8
+    assert x["xp_next3"] == pytest.approx(6.0)          # v2: 2.0 in each of gws 6-8
     c = conn.execute("SELECT xp_source, xp_next3 FROM xp_next_cache WHERE player_id = 1").fetchone()
-    assert (c["xp_source"], c["xp_next3"]) == ("fpl_ep/v2", pytest.approx(9.0))
+    assert (c["xp_source"], c["xp_next3"]) == ("fpl_ep/v2", pytest.approx(6.0))
 
 
 def test_current_season_check_pending(db_with_sample, tmp_path):
@@ -225,4 +226,17 @@ def test_report_caveat_names_fit_season(db_with_sample, tmp_path):
     assert "both fitted on 2024-25 and are scored here on 2026-27" in text
     assert "both results are out of sample" in text
     assert "In-sample caveat" not in text and "carries no such optimism" not in text
-    assert "1.880 to 1.876" in text
+    assert "1.880 to 1.876" not in text        # only true for the 2024-25 fit / 2025-26 backtest
+
+
+def test_report_mae_drift_sentence_only_for_its_seasons(db_with_sample, tmp_path):
+    db_with_sample.execute("INSERT INTO meta (key, value) VALUES ('fit_season', '2024-25')")
+    _three_gw_rows(db_with_sample)
+    r = backtest.run(db_with_sample, "2026-27", from_gw=6)
+    p = tmp_path / "b.md"
+    r["season"] = "2025-26"
+    backtest.write_report(r, p)
+    assert "1.880 to 1.876" in p.read_text() and "3.630 to 3.635" in p.read_text()
+    r["fit_season"] = "2023-24"
+    backtest.write_report(r, p)
+    assert "1.880" not in p.read_text()

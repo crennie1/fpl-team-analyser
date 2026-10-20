@@ -272,6 +272,11 @@ def write_report(result: dict, path: Path) -> None:
                    f"({len(cur['covered_gws'])} gameweeks), same rules as above. These are "
                    f"live numbers the parameters never saw.\n\n"
                    f"| Method | MAE | Rows |\n|---|---|---|\n{_table(cur, LABELS)}")
+    # true only for the 2024-25 fit / 2025-26 backtest pair the earlier reports used
+    drift = (" v1's MAE moved slightly from earlier reports (1.880 to 1.876,\n  and FPL's 3-GW "
+             "3.630 to 3.635) because the fixture-difficulty multipliers are now fitted on\n  "
+             "the earlier season."
+             if result["season"] == "2025-26" and result.get("fit_season") == "2024-25" else "")
     text = f"""# Backtest report
 
 Season: {result['season']}. Scoring starts at GW{result['from_gw']}.
@@ -336,9 +341,7 @@ Does the choice above hold on the live season?
 
 - **What was fitted where:** v1's fixture-difficulty (FDR) multipliers and v2's `calib_att`
   were both fitted on {fit} and are scored here on {result['season']}, a different season, so
-  both results are out of sample. v1's MAE moved slightly from earlier reports (1.880 to 1.876,
-  and FPL's 3-GW 3.630 to 3.635) because the fixture-difficulty multipliers are now fitted on
-  the earlier season.
+  both results are out of sample.{drift}
 - A player's first appearance has no last-5 history, so those rows are dropped for all methods.
 - Double gameweeks: actual points and predictions are summed over both fixtures.
 - The comparison covers only the gameweeks listed above, not the whole season.

@@ -187,7 +187,8 @@ A saved copy of the view `v_xp_next`, taken after each data load. It is a table 
 | `start_prob` | Chance he starts, 0 to 1. |
 | `xp_source` | `fpl_ep`, `v2` or `model`: where the numbers came from. If the two horizons differ it reads like `fpl_ep/v2` (next gameweek source, then 3-gameweek source). |
 | `defcon_chance` | Chance he reaches his DefCon threshold next gameweek (0 to 1). Always filled from v2, whichever source is chosen. 0 for goalkeepers. |
-| `cs_chance` | Chance his team keeps a clean sheet next gameweek. Always filled from v2. |
+| `cs_chance` | Chance his team keeps a clean sheet next gameweek. Always filled from v2. In a double gameweek it is the sum over both fixtures (what expected points use). |
+| `cs_display` | The clean-sheet chance the app shows for goalkeepers: in a double gameweek, the chance of at least one clean sheet, `1 - (1 - p1) x (1 - p2)`, so it never passes 100%. |
 
 ## The forecast (v1): how expected points are worked out
 
@@ -232,7 +233,7 @@ A double gameweek sums its fixtures. A blank gameweek is 0. There is no set-piec
 
 - **start_prob**: same as v1 (share of the last 5 loaded gameweeks' minutes, times FPL's `chance_next` for the upcoming gameweek).
 - **2**: points for playing 60 minutes or more.
-- **xg90, xa90**: his xG and xA per 90 minutes over the last 6 loaded gameweeks. Under 180 minutes, the position average is used. `GOAL_PTS` is 6 for GK and DEF, 5 for MID, 4 for FWD. An assist is worth 3.
+- **xg90, xa90**: his xG and xA per 90 minutes over the last 6 loaded gameweeks. Under 180 minutes, the position average is used. `GOAL_PTS` is 10 for GK, 6 for DEF, 5 for MID, 4 for FWD. An assist is worth 3.
 - **opp_xg_ratio**: xG the opponent concedes to his position per match (last 6), divided by the league average. Clamped to 0.5 to 2.0. Set to 1.0 if the league average is under 0.05 a match (too rare to compare).
 - **calib_att**: the fitted scale factor above (1.0 if there is no row).
 - **cs_chance**: chance of a clean sheet, `exp(-lambda)`, where lambda is his team's xG conceded per match (last 6) times the opponent's attack ratio. `CS_PTS` is 4 for GK and DEF, 1 for MID, 0 for FWD.
@@ -359,7 +360,8 @@ What the app shows: current season, upcoming gameweek. See "What the app shows" 
 | `start_prob` | Chance he starts, 0 to 1. |
 | `xp_source` | `fpl_ep`, `v2` or `model`; `fpl_ep/v2` style when the two horizons differ. |
 | `defcon_chance` | v2 DefCon chance next gameweek. Always shown, whichever source is chosen. |
-| `cs_chance` | v2 clean-sheet chance next gameweek. Always shown. |
+| `cs_chance` | v2 clean-sheet chance next gameweek (summed over a double gameweek). Always shown. |
+| `cs_display` | Clean-sheet chance as shown in the app: `1 - product of (1 - p)` over a double gameweek. |
 
 ### Forecast v2 views
 
@@ -372,7 +374,7 @@ One row per player per fixture: points, xG and DefCon hits. A double gameweek's 
 |---|---|
 | `season`, `gw`, `fixture_id`, `player_id`, `position` | Which player and match. |
 | `team_id`, `opp_id` | His club that day and the opponent. |
-| `pts`, `xg`, `defcon_hits` | His points, xG and DefCon hits in that fixture. |
+| `pts`, `xg`, `defcon_hits` | His points, xG and DefCon hits in that fixture. `xg` is empty when he has no `player_gw_stats` row (unknown, not 0). |
 
 #### `v_team_gw` and `v_team_gw_pos`
 Helper views that total things per team and gameweek. `v_team_gw` has matches played, `xg_for` (xG the team's players created) and `xg_against`. `v_team_gw_pos` has what each position's players scored against the team: `pts`, `xg`, `defcon_hits`.
@@ -441,7 +443,8 @@ What the app reads from v2: current season, upcoming gameweek.
 | `player_id` | Player. |
 | `xp_v2_next`, `xp_v2_next3` | v2 expected points next gameweek and over the next 3. |
 | `defcon_chance_next` | DefCon chance next gameweek. |
-| `cs_chance_next` | Clean-sheet chance next gameweek. |
+| `cs_chance_next` | Clean-sheet chance next gameweek (sum over a double gameweek's fixtures). |
+| `cs_display_next` | Chance of at least one clean sheet next gameweek: `1 - product of (1 - p)`. |
 
 ### `v_squad_pick_xp`
 Each squad pick with the player's position, expected points and risk flag.

@@ -10,15 +10,16 @@ from tests.test_forecast_v2 import v2db  # noqa: F401  (fixture)
 
 
 def add(conn, pid, pos, team, first=None, second=None, web="Web", defcon=None, cs=None,
-        xp=4.0, xp3=10.0, cost=65, owned=12.5):
+        xp=4.0, xp3=10.0, cost=65, owned=12.5, cs_display=None):
     _insert(conn, "player", [{"season": CUR, "player_id": pid, "web_name": web, "team_id": team,
                               "position": pos, "first_name": first, "second_name": second}])
     _insert(conn, "player_snapshot", [{
         "season": CUR, "gw": 7, "player_id": pid, "collected_at": "x", "status": "a",
         "chance_next": None, "ep_next": 4.0, "now_cost": cost, "selected_by_percent": owned,
         "news": None}])
-    conn.execute("INSERT OR REPLACE INTO xp_next_cache VALUES (?, ?, ?, 1.0, 'v2', ?, ?)",
-                 (pid, xp, xp3, defcon, cs))
+    conn.execute("INSERT OR REPLACE INTO xp_next_cache (player_id, xp_next, xp_next3, start_prob, "
+                 "xp_source, defcon_chance, cs_chance, cs_display) VALUES (?, ?, ?, 1.0, 'v2', ?, ?, ?)",
+                 (pid, xp, xp3, defcon, cs, cs if cs_display is None else cs_display))
 
 
 def setup_league(conn):
@@ -76,7 +77,8 @@ def test_cards_sell_mapping(v2db):
     s = Suggestion(1, 2, "M", "Saka", 3.5, 4, -0.5, ("midfield", "B", "A"), starts_instead="Other")
     cards = player_cards(v2db, analysis(view(1, "M", "MID")), [s])
     assert cards[0]["sell"] == {"to_name": "Saka", "to_full_name": "Bukayo Saka", "to_club": "T2",
-                                "gain3": 3.5, "hit": 4, "starts_instead_of": "Other"}
+                                "initials": "BS", "gain3": 3.5, "hit": 4,
+                                "starts_instead_of": "Other"}
     assert player_cards(v2db, analysis(view(1, "M", "MID")), [])[0]["sell"] is None
 
 
@@ -233,3 +235,20 @@ def test_last6_defcon_is_raw_hit_rate(v2db):
     assert (c["last6"]["defcon_hits"], c["last6"]["defcon_apps"]) == (4, 6)
     assert c["last6"]["defcon_pct"] == 67
     assert c["bar_pct"] == 50                                # the chance still comes from the cache
+
+
+def test_sell_initials_follow_v6(v2db):
+    setup_league(v2db)
+    add(v2db, 1, "MID", 1)
+    add(v2db, 2, "MID", 2, "Bruno", "Borges Fernandes", "B.Fernandes")
+    refresh(v2db)
+    s = Suggestion(1, 2, "M", "B.Fernandes", 3.5, 0, 3.5, ("midfield", "B", "A"))
+    assert player_cards(v2db, analysis(view(1, "M", "MID")), [s])[0]["sell"]["initials"] == "BF"
+
+
+def test_gk_clean_sheet_shows_double_gw_probability(v2db):
+    """A double gameweek's clean-sheet % is 1 - (1-p1)(1-p2), not the sum used for xP."""
+    setup_league(v2db)
+    add(v2db, 1, "GK", 1, cs=1.2, cs_display=0.84)
+    refresh(v2db)
+    assert player_cards(v2db, analysis(view(1, "G", "GK")), [])[0]["bar_pct"] == 84

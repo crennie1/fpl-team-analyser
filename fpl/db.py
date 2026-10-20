@@ -7,18 +7,29 @@ SQL_DIR = Path(__file__).parent / "sql"
 VIEW_FILES = ("forecast.sql", "forecast_v2.sql", "squad.sql")
 
 
-def register_functions(conn):
+def _exp(x):
+    return None if x is None else math.exp(x)
+
+
+def _ln(x):
+    """Like SQLite's ln: NULL for NULL and for x <= 0."""
+    return None if x is None or x <= 0 else math.log(x)
+
+
+def register_functions(conn, force=False):
     """Make sure `exp` and `ln` exist as SQL functions (forecast_v2.sql uses them).
 
     Most SQLite builds ship them (3.35+ with math functions); for any that is missing
-    (`SELECT exp(0)` fails) we register Python's math.exp / math.log. NULL in, NULL out.
+    (`SELECT exp(0)` fails) we register Python versions that behave like SQLite's:
+    NULL in, NULL out, and ln(x) is NULL for x <= 0. `force` registers them anyway (tests).
     """
-    for name, expr, fn in (("exp", "exp(0)", math.exp), ("ln", "ln(1)", math.log)):
+    for name, expr, fn in (("exp", "exp(0)", _exp), ("ln", "ln(1)", _ln)):
         try:
+            if force:
+                raise sqlite3.OperationalError(name)
             conn.execute(f"SELECT {expr}").fetchone()
         except sqlite3.OperationalError:
-            conn.create_function(name, 1, lambda x, fn=fn: None if x is None else fn(x),
-                                 deterministic=True)
+            conn.create_function(name, 1, fn, deterministic=True)
 
 
 def connect(path):
@@ -62,12 +73,13 @@ def apply_views(conn):
 def refresh_xp_cache(conn):
     """Replace xp_next_cache with the current rows of v_xp_next (run after every data load)."""
     # A cache, so it is safe to rebuild: this also upgrades an older committed db that
-    # lacks the defcon_chance / cs_chance columns.
+    # lacks the defcon_chance / cs_chance / cs_display columns.
     conn.execute("DROP TABLE IF EXISTS xp_next_cache")
     conn.execute("CREATE TABLE xp_next_cache (player_id INTEGER PRIMARY KEY, xp_next REAL, "
-                 "xp_next3 REAL, start_prob REAL, xp_source TEXT, defcon_chance REAL, cs_chance REAL)")
+                 "xp_next3 REAL, start_prob REAL, xp_source TEXT, defcon_chance REAL, cs_chance REAL, "
+                 "cs_display REAL)")
     conn.execute("INSERT INTO xp_next_cache SELECT player_id, xp_next, xp_next3, start_prob, "
-                 "xp_source, defcon_chance, cs_chance FROM v_xp_next")
+                 "xp_source, defcon_chance, cs_chance, cs_display FROM v_xp_next")
     conn.commit()
 
 

@@ -96,3 +96,46 @@ def test_phone_tap_opens_panel_after_the_tapped_cards_row(tmp_path):
         res = json.loads(out)
         assert res["open"] and res["afterNode"] == "panel"
         assert res["afterRow"] == [pos]
+
+
+def render(pl, pick=None):
+    """Run the page script in node against a stub DOM; return {"pitch": html, "panel": html}."""
+    import tempfile
+    html = team_view_html(pl)
+    with tempfile.TemporaryDirectory() as d:
+        js = Path(d) / "page.js"
+        js.write_text(re.search(r"<script>(.*)</script>", html, re.S).group(1))
+        harness = Path(__file__).parent / "js" / "render_harness.js"
+        args = ["node", str(harness), str(js)] + ([] if pick is None else [str(pick)])
+        out = subprocess.run(args, capture_output=True, text=True, check=False)
+    assert out.returncode == 0, out.stderr
+    return json.loads(out.stdout)
+
+
+needs_node = pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+
+
+@needs_node
+def test_card_xp_colour_follows_payload_colour():
+    """v1's rule (chance <= 50% -> red) lives in `colour`; the card must not recolour by xP."""
+    for colour, xp, css in (("red", 6.0, "#ff5c7a"), ("green", 1.0, "#38d39f"),
+                            ("amber", 6.0, "#fff")):
+        pitch = render(payload(colour=colour, xp=xp))["pitch"]
+        assert f'<div class="xp" style="color:{css}">' in pitch, colour
+
+
+@needs_node
+def test_panel_defcon_hits_shows_raw_count():
+    pl = payload(pos="DEF", bar_label="DefCon", bar_pct=55,
+                 last6={"form": 5.0, "xg": 0.2, "xa": 0.1, "defcon_pct": 67,
+                        "defcon_hits": 4, "defcon_apps": 6})
+    panel = render(pl, 0)["panel"]
+    assert "DefCon hits" in panel and ">4 of 6<" in panel and ">67%<" not in panel
+
+
+@needs_node
+def test_sell_block_uses_payload_initials():
+    sell = {"to_name": "B.Fernandes", "to_full_name": "Bruno Borges Fernandes", "to_club": "ZZZ",
+            "initials": "BF", "gain3": 3.0, "hit": 0, "starts_instead_of": None}
+    panel = render(payload(sell=sell), 0)["panel"]
+    assert ">BF</text>" in panel and ">BB</text>" not in panel

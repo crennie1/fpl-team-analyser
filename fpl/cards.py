@@ -116,7 +116,7 @@ def _card(conn, pv, season, next_gw, last_gw, ranks, sug):
     pid = pv.player_id
     p = conn.execute(
         "SELECT p.first_name, p.second_name, p.web_name, p.team_id, t.short_name AS club, "
-        "       s.now_cost, s.selected_by_percent, x.xp_next3, x.defcon_chance, x.cs_chance "
+        "       s.now_cost, s.selected_by_percent, x.xp_next3, x.defcon_chance, x.cs_display "
         "FROM player AS p JOIN team AS t ON t.season = p.season AND t.team_id = p.team_id "
         "LEFT JOIN v_latest_snapshot AS s ON s.player_id = p.player_id "
         "LEFT JOIN xp_next_cache AS x ON x.player_id = p.player_id "
@@ -124,7 +124,7 @@ def _card(conn, pv, season, next_gw, last_gw, ranks, sug):
     if p is None:
         return None
     is_gk = pv.position == "GK"
-    chance = p["cs_chance"] if is_gk else p["defcon_chance"]
+    chance = p["cs_display"] if is_gk else p["defcon_chance"]
 
     fixtures = [{"opp": f["opp"], "home": bool(f["home"]), "fdr": f["fdr"]} for f in conn.execute(
         "SELECT COALESCE(o.short_name, '?') AS opp, f.team_h = :t AS home, "
@@ -174,7 +174,7 @@ def _card(conn, pv, season, next_gw, last_gw, ranks, sug):
         full = (f"{n['first_name']} {n['second_name']}" if n["first_name"] and n["second_name"]
                 else n["web_name"])
         sell = {"to_name": sug.in_name, "to_full_name": full, "to_club": n["club"],
-                "gain3": sug.gain3, "hit": sug.hit, "starts_instead_of": sug.starts_instead}
+                "initials": _initials(n["first_name"], n["web_name"]), "gain3": sug.gain3, "hit": sug.hit, "starts_instead_of": sug.starts_instead}
 
     return {
         "id": pid, "initials": _initials(p["first_name"], p["web_name"]),
