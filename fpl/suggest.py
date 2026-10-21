@@ -112,7 +112,7 @@ def suggest(conn, squad: Squad, k: int = 2) -> list[Suggestion]:
             except SquadError:
                 continue   # this swap is not valid; try the next candidate
             if bench_for:
-                swapped = _promote(swapped, in_id, bench_for.player_id)
+                swapped = promote(swapped, in_id, bench_for.player_id)
             after = analyse_squad(conn, swapped).grades
             area = GRADE_AREA[position]
             result.append(Suggestion(out_id, in_id, out_name, in_name, gain3, hit, net,
@@ -125,7 +125,7 @@ def suggest(conn, squad: Squad, k: int = 2) -> list[Suggestion]:
     return result
 
 
-def _promote(squad: Squad, in_id: int, starter_id: int) -> Squad:
+def promote(squad: Squad, in_id: int, starter_id: int) -> Squad:
     """The new bench player and the starter trade slot, starting place and armband."""
     a = next(p for p in squad.picks if p.player_id == in_id)
     b = next(p for p in squad.picks if p.player_id == starter_id)
