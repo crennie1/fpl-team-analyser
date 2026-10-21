@@ -105,3 +105,16 @@ def test_extra_hit(db_with_squads, add_squad):
 def test_undo_last():
     m1, m2 = Move(1, 2), Move(3, 4)
     assert undo_last([m1, m2]) == [m1] and undo_last([]) == []
+
+
+def test_undo_refuses_when_later_promotion_loses_its_starter(db_with_squads, add_squad):
+    base, pids = setup(db_with_squads, add_squad)
+    a, bench = pids[5], pids[13]
+    add_player(db_with_squads, 7001, "MID", 300, 5.0)
+    add_player(db_with_squads, 7002, "MID", 301, 5.0)
+    m = add(base, [], a, 7001, db_with_squads)                          # B=7001 starts
+    m = add(base, m, bench, 7002, db_with_squads, promote_over=7001)
+    before = list(m)
+    with pytest.raises(SquadError, match="not in your squad"):
+        undo_original(base, m, a, db_with_squads)
+    assert m == before

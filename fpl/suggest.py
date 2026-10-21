@@ -127,8 +127,10 @@ def suggest(conn, squad: Squad, k: int = 2) -> list[Suggestion]:
 
 def promote(squad: Squad, in_id: int, starter_id: int) -> Squad:
     """The new bench player and the starter trade slot, starting place and armband."""
-    a = next(p for p in squad.picks if p.player_id == in_id)
-    b = next(p for p in squad.picks if p.player_id == starter_id)
+    a = next((p for p in squad.picks if p.player_id == in_id), None)
+    b = next((p for p in squad.picks if p.player_id == starter_id), None)
+    if a is None or b is None:
+        raise SquadError("That player is not in your squad")
     picks = []
     for p in squad.picks:
         if p is a:
