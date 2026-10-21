@@ -1,7 +1,12 @@
 import json
+import os
 from pathlib import Path
 
 import pytest
+
+# Tests import fpl modules themselves and monkeypatch them; app.py's reload guard would
+# purge them on first import and split module identity, so it is off for the test session.
+os.environ.setdefault("FPL_RELOAD_GUARD", "0")
 
 from fpl import db
 

@@ -30,6 +30,7 @@ class Analysis:
     gw: int
     note: str | None
     missing: list = field(default_factory=list)   # squad player ids not in the database yet (not on the pitch)
+    projected3: float = 0.0                       # starters' + captain's xp_next3 (next three gameweeks)
 
 
 def colour_for(xp_next, chance_next):
@@ -78,7 +79,7 @@ def analyse_squad(conn, squad: Squad) -> Analysis:
     for r in conn.execute("SELECT area, grade FROM v_squad_grades WHERE squad_id = 'user'"):
         grades[r["area"]] = r["grade"]
     projected = conn.execute(
-        "SELECT projected FROM v_squad_metrics WHERE squad_id = 'user'").fetchone()
+        "SELECT projected, projected3 FROM v_squad_metrics WHERE squad_id = 'user'").fetchone()
     average = conn.execute(
         "SELECT AVG(m.projected) FROM v_squad_metrics AS m "
         "JOIN reference_squad AS r ON r.squad_id = m.squad_id "
@@ -89,4 +90,5 @@ def analyse_squad(conn, squad: Squad) -> Analysis:
                     projected[0] if projected else 0.0,
                     average if average is not None else 0.0,
                     squad.gw, squad.note,
-                    [p.player_id for p in squad.picks if p.player_id not in shown])
+                    [p.player_id for p in squad.picks if p.player_id not in shown],
+                    projected[1] if projected else 0.0)

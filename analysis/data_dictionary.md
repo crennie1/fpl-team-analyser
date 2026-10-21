@@ -482,6 +482,7 @@ One row per squad with seven numbers.
 | `risk` | Share of the starters' expected points that come from flagged players. Lower is better. |
 | `bench` | Sum of `xp_next` over the bench. |
 | `projected` | Starters' `xp_next` plus the captain's `xp_next` again (captain counts double). No automatic substitutions. |
+| `projected3` | The same sum over `xp_next3` (expected points across the next three gameweeks). Shown, not graded. |
 
 ### `v_squad_area_value`
 The same seven numbers in "long" form: one row per squad and area. This lets every area be graded the same way.
