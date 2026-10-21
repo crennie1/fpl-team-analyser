@@ -260,3 +260,28 @@ def test_swap_keeps_captain_flag_and_updates_bank(conn):
     assert p.is_captain and p.is_starter and p.slot == 9 and p.selling_price == 50
     assert new.bank == 5 + 50 - 50
     assert next(p for p in sq.picks if p.slot == 9).player_id == 9  # original untouched
+
+
+def test_swap_over_budget_allowed_in_planning_mode(conn):
+    new = swap(make_squad(conn, bank=10), 8, 23, conn, allow_over_budget=True)
+    assert new.bank == 10 + 50 - 150
+
+
+def test_swap_over_budget_still_blocked_by_default(conn):
+    with pytest.raises(SquadError, match="Over budget"):
+        swap(make_squad(conn, bank=10), 8, 23, conn)
+
+
+def test_planning_mode_keeps_club_and_position_rules(conn):
+    sq = make_squad(conn)
+    conn.execute("UPDATE player SET team_id = 1 WHERE player_id IN (3, 4, 5)")
+    conn.commit()
+    with pytest.raises(SquadError, match="Too many players from one club"):
+        swap(sq, 6, 21, conn, allow_over_budget=True)
+    with pytest.raises(SquadError, match="same position"):
+        swap(sq, 3, 22, conn, allow_over_budget=True)
+
+
+def test_validate_planning_mode_skips_only_budget(conn):
+    sq = make_squad(conn, bank=-1)
+    assert validate(sq, conn, allow_over_budget=True) == []
