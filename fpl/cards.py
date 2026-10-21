@@ -91,13 +91,11 @@ def _set_pieces(sp):
     return "; ".join(f"{ordinal(o)} choice {', '.join(groups[o])}" for o in sorted(groups))
 
 
-def player_cards(conn, analysis: Analysis, suggestions: list, weakness=None,
-                 extras: dict | None = None) -> list[dict]:
+def player_cards(conn, analysis: Analysis, suggestions: list, weakness=None) -> list[dict]:
     """Card data for every analysed player.
 
     `weakness` is weakness_table(conn) when the caller already has it (the app caches it
-    per database file); otherwise it is computed here. `extras` maps player id to extra card
-    keys (selling_price, options, was, original_id) merged into that player's card. Nothing below reads the heavy v2
+    per database file); otherwise it is computed here. Nothing below reads the heavy v2
     views per card, so one rerun stays fast.
     """
     season, next_gw = _meta(conn, "current_season"), int(_meta(conn, "next_gw"))
@@ -110,7 +108,6 @@ def player_cards(conn, analysis: Analysis, suggestions: list, weakness=None,
     for pv in analysis.players:
         card = _card(conn, pv, season, next_gw, last_gw, ranks, sells.get(pv.player_id))
         if card is not None:   # None: not in the player table yet (Analysis.missing)
-            card.update((extras or {}).get(pv.player_id, {}))
             cards.append(card)
     return cards
 
@@ -198,43 +195,3 @@ def _card(conn, pv, season, next_gw, last_gw, ranks, sug):
         "set_pieces": _set_pieces(sp),
         "sell": sell,
     }
-
-
-def replacement_pool(conn) -> dict[str, list[dict]]:
-    """Every current-season player by position, for the replacement list:
-    {"GK"|"DEF"|"MID"|"FWD": [{id, name, full_name, initials, club, price (GBP m), xp3,
-    fixtures: [{opp, home, fdr}] (next 3)}]}. Fixtures come from one query for all teams."""
-    season, next_gw = _meta(conn, "current_season"), int(_meta(conn, "next_gw"))
-    fixtures = {}
-    for f in conn.execute(
-            "SELECT f.gw, f.fixture_id, f.team_h AS team, COALESCE(o.short_name, '?') AS opp, "
-            "       1 AS home, f.team_h_difficulty AS fdr FROM fixture AS f "
-            "LEFT JOIN team AS o ON o.season = f.season AND o.team_id = f.team_a "
-            "WHERE f.season = :s AND f.gw >= :g "
-            "UNION ALL "
-            "SELECT f.gw, f.fixture_id, f.team_a, COALESCE(o.short_name, '?'), "
-            "       0, f.team_a_difficulty FROM fixture AS f "
-            "LEFT JOIN team AS o ON o.season = f.season AND o.team_id = f.team_h "
-            "WHERE f.season = :s AND f.gw >= :g "
-            "ORDER BY 1, 2", {"s": season, "g": next_gw}):
-        rows = fixtures.setdefault(f["team"], [])
-        if len(rows) < 3:
-            rows.append({"opp": f["opp"], "home": bool(f["home"]), "fdr": f["fdr"]})
-    pool = {pos: [] for pos in POS_WORD}
-    for p in conn.execute(
-            "SELECT p.player_id, p.first_name, p.second_name, p.web_name, p.team_id, p.position, "
-            "       t.short_name AS club, s.now_cost, COALESCE(x.xp_next3, 0.0) AS xp3 "
-            "FROM player AS p JOIN team AS t ON t.season = p.season AND t.team_id = p.team_id "
-            "JOIN v_latest_snapshot AS s ON s.player_id = p.player_id "
-            "LEFT JOIN xp_next_cache AS x ON x.player_id = p.player_id "
-            "WHERE p.season = ? ORDER BY xp3 DESC, p.player_id", (season,)):
-        if p["position"] not in pool or p["now_cost"] is None:
-            continue
-        pool[p["position"]].append({
-            "id": p["player_id"], "name": p["web_name"],
-            "full_name": (f"{p['first_name']} {p['second_name']}"
-                          if p["first_name"] and p["second_name"] else p["web_name"]),
-            "initials": _initials(p["first_name"], p["web_name"]), "club": p["club"],
-            "price": p["now_cost"] / 10, "xp3": p["xp3"],
-            "fixtures": list(fixtures.get(p["team_id"], []))})
-    return pool

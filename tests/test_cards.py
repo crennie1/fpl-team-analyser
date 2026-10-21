@@ -2,7 +2,7 @@
 import pytest
 
 from fpl.analyse import Analysis, PlayerView
-from fpl.cards import ordinal, player_cards, replacement_pool, weakness_table
+from fpl.cards import ordinal, player_cards, weakness_table
 from fpl.suggest import Suggestion
 from tests.conftest import _insert
 from tests.test_forecast_v2 import CUR, add_stat_row, refresh
@@ -252,33 +252,3 @@ def test_gk_clean_sheet_shows_double_gw_probability(v2db):
     add(v2db, 1, "GK", 1, cs=1.2, cs_display=0.84)
     refresh(v2db)
     assert player_cards(v2db, analysis(view(1, "G", "GK")), [])[0]["bar_pct"] == 84
-
-
-def test_pool_has_every_position_and_fixtures(v2db):
-    setup_league(v2db)
-    add(v2db, 1, "GK", 1, "Gee", "Keeper", "Keeper", cost=45, xp3=5.0)
-    add(v2db, 2, "DEF", 1, cost=50)
-    add(v2db, 3, "MID", 2, cost=80, xp3=9.0)
-    add(v2db, 4, "FWD", 2, "Erling", "Haaland", "Haaland", cost=145, xp3=12.0)
-    refresh(v2db)
-    pool = replacement_pool(v2db)
-    assert set(pool) == {"GK", "DEF", "MID", "FWD"}
-    row = pool["FWD"][0]
-    assert {"id", "name", "full_name", "initials", "club", "price", "xp3", "fixtures"} <= row.keys()
-    assert len(row["fixtures"]) <= 3 and len(row["fixtures"]) == 3
-    assert (row["id"], row["price"], row["club"], row["initials"], row["xp3"]) == (4, 14.5, "T2", "EH", 12.0)
-    assert row["fixtures"][0] == {"opp": "T1", "home": False, "fdr": row["fixtures"][0]["fdr"]}
-    assert pool["GK"][0]["full_name"] == "Gee Keeper"
-
-
-def test_cards_merge_extras(v2db):
-    setup_league(v2db)
-    add(v2db, 1, "MID", 1)
-    add(v2db, 2, "MID", 1)
-    refresh(v2db)
-    extras = {1: {"was": "X", "original_id": 9, "selling_price": 6.0, "options": []}}
-    cards = player_cards(v2db, analysis(view(1, "A", "MID"), view(2, "B", "MID")), [], extras=extras)
-    assert (cards[0]["was"], cards[0]["original_id"], cards[0]["selling_price"]) == ("X", 9, 6.0)
-    assert cards[0]["options"] == []
-    assert "was" not in cards[1]
-    assert "was" not in player_cards(v2db, analysis(view(1, "A", "MID")), [])[0]

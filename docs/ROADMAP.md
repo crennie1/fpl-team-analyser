@@ -5,7 +5,7 @@ Ranked by impact on the two goals: getting hired as a data analyst, and possibly
 | # | Change | Why it matters | Size | Rough time |
 |---|---|---|---|---|
 | 1 | **Out-of-sample test on this season** (write-up once ~GW12 data exists) | The strongest interview evidence: an honest test on games no model was tuned on. The report runs it automatically; you post the result. | Small | 30 min |
-| 2 | ✅ **Done 21 Oct 2026.** **Swap a player from the stats panel** (click a player, then choose a replacement), **with an over-budget planning mode**: swaps are allowed even when they break the budget, and the app shows a clear "£1.2m over budget" warning instead of blocking, so you can try a dream team, or bring in an expensive player before deciding who to sell. The 3-per-club and position rules still apply. | The feature you'll use most. Makes the app feel finished when you share it. Task card already saved. | Medium | 2.5–3.5 h |
+| 2 | **Swap a player from the stats panel** (click a player, then choose a replacement), **with an over-budget planning mode**: swaps are allowed even when they break the budget, and the app shows a clear "£1.2m over budget" warning instead of blocking, so you can try a dream team, or bring in an expensive player before deciding who to sell. The 3-per-club and position rules still apply. | The feature you'll use most. Makes the app feel finished when you share it. Task card already saved. | Medium | 2.5–3.5 h |
 | 3 | **Player strengths/weaknesses + reasons for each grade** (rule-based text from real numbers) | Turns numbers into insight, which is the core analyst skill. Great for screenshots and interviews. | Medium | 2–3 h |
 | 4 | **"How it works" page in the app** (method, backtest chart, plain English) | Recruiters see your analysis without opening GitHub. | Small–medium | 1–2 h |
 | 5 | **DefCon calibration check** (predicted % vs actual hit rate, last season) | Proves the DefCon numbers are trustworthy, or shows how you fixed them. A strong data story. | Medium | 2–3 h |
@@ -19,7 +19,7 @@ Ranked by impact on the two goals: getting hired as a data analyst, and possibly
 | 13 | **Season rollover check** (before August 2027) | Makes sure the switch to 2027-28 picks the right seasons automatically. | Small | 30 min |
 
 ## Suggested order over time
-- **This week:** #2 is done. Next, use the app for a gameweek and update your CV/README (no code).
+- **This week:** #2. Then use the app for a gameweek and update your CV/README (no code).
 - **Next 2 weeks:** #3 and #4, then #12 whenever you have half an hour.
 - **Around GW12:** #1, then #5.
 - **Later / if going paid:** #7, #8, #9, then #6.

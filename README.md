@@ -58,8 +58,6 @@ A **percentile** is the share of those squads you beat. A grade comes from it: A
 
 The app shows the best single moves. Each move is checked on its own against your current squad (so do not assume you can make both). It respects your budget, the 3-players-per-club limit, and counts the points cost of an extra transfer.
 
-You can also plan swaps straight from the team sheet. Click a player to see a Replace list with 👍 marks on the picks that look worth it, try a swap, and the sheet shows your plan next to your real team (points, grades and money before and after). You can plan a move that costs more than your bank allows; it just shows a warning that you are over budget.
-
 ## How to run locally
 
 You need Python 3.11 or newer.

@@ -153,7 +153,7 @@ def load_squad(client, conn, team_id) -> Squad:
                  estimate_free_transfers(history), note)
 
 
-def validate(squad: Squad, conn, allow_over_budget: bool = False) -> list[str]:
+def validate(squad: Squad, conn) -> list[str]:
     problems = []
     info = _player_info(conn, [p.player_id for p in squad.picks])
     unknown = [p.player_id for p in squad.picks if p.player_id not in info]
@@ -176,7 +176,7 @@ def validate(squad: Squad, conn, allow_over_budget: bool = False) -> list[str]:
                                (_current_season(conn), club)).fetchone()
             name = row[0] if row else f"team {club}"
             problems.append(f"Too many players from one club ({name} has {n}, max {MAX_PER_CLUB})")
-    if squad.bank < 0 and not allow_over_budget:
+    if squad.bank < 0:
         problems.append(f"Over budget by £{-squad.bank / 10:.1f}m")
 
     starters = {k: 0 for k in SHAPE}
@@ -191,7 +191,7 @@ def validate(squad: Squad, conn, allow_over_budget: bool = False) -> list[str]:
     return problems
 
 
-def swap(squad: Squad, out_id: int, in_id: int, conn, allow_over_budget: bool = False) -> Squad:
+def swap(squad: Squad, out_id: int, in_id: int, conn) -> Squad:
     out = next((p for p in squad.picks if p.player_id == out_id), None)
     if out is None:
         raise SquadError("That player is not in your squad")
@@ -208,7 +208,7 @@ def swap(squad: Squad, out_id: int, in_id: int, conn, allow_over_budget: bool = 
     new_picks = [replace(out, player_id=in_id, selling_price=cost) if p is out else p
                  for p in squad.picks]
     new = replace(squad, picks=new_picks, bank=squad.bank + out.selling_price - cost)
-    problems = validate(new, conn, allow_over_budget)
+    problems = validate(new, conn)
     if problems:
         raise SquadError("; ".join(problems))
     return new

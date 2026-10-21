@@ -10,7 +10,6 @@
 --               flagged = status not 'a', or chance_next < 75, or start_prob < 0.6
 --   bench     = sum of xp_next over the non-starters
 --   projected = starters' xp_next + the captain's xp_next again (no auto-subs)
---   projected3 = the same over xp_next3 (the next three gameweeks); not graded
 --
 -- v_squad_grades   each non-reference squad ranked against the reference
 --   squads of the current season: percentile (ruling R15), then a letter.
@@ -33,13 +32,12 @@ DROP VIEW IF EXISTS v_squad_pick_xp;
 -- One row per squad pick with the player's position, expected points and risk flag.
 CREATE VIEW v_squad_pick_xp AS
 WITH xp AS MATERIALIZED (   -- read the forecast cache once, not once per pick
-    SELECT player_id, xp_next, xp_next3, start_prob FROM xp_next_cache
+    SELECT player_id, xp_next, start_prob FROM xp_next_cache
 )
 SELECT sp.squad_id, sp.player_id, sp.slot, sp.is_starter, sp.is_captain,
        pl.position,
        pl.team_id,
        COALESCE(x.xp_next, 0.0) AS xp_next,
-       COALESCE(x.xp_next3, 0.0) AS xp_next3,
        -- flagged: injured/doubtful, FPL chance below 75%, or unlikely to start
        CASE WHEN COALESCE(sn.status, 'a') <> 'a'
               OR COALESCE(sn.chance_next, 100) < 75
@@ -75,9 +73,7 @@ WITH sums AS (       -- all the xp_next sums in one pass over the picks
            SUM(CASE WHEN is_starter = 0                               THEN xp_next ELSE 0 END) AS bench,
            SUM(CASE WHEN is_starter = 1                               THEN xp_next ELSE 0 END) AS starters_xp,
            SUM(CASE WHEN is_starter = 1 AND is_flagged = 1            THEN xp_next ELSE 0 END) AS flagged_xp,
-           SUM(CASE WHEN is_captain = 1                               THEN xp_next ELSE 0 END) AS captain_xp,
-           SUM(CASE WHEN is_starter = 1                               THEN xp_next3 ELSE 0 END) AS starters_xp3,
-           SUM(CASE WHEN is_captain = 1                               THEN xp_next3 ELSE 0 END) AS captain_xp3
+           SUM(CASE WHEN is_captain = 1                               THEN xp_next ELSE 0 END) AS captain_xp
     FROM v_squad_pick_xp
     GROUP BY squad_id
 )
@@ -88,8 +84,7 @@ SELECT s.squad_id,
        f.fixtures,
        CASE WHEN s.starters_xp > 0 THEN s.flagged_xp / s.starters_xp ELSE 0.0 END AS risk,
        s.bench,
-       s.starters_xp + s.captain_xp AS projected,    -- captain counts double
-       s.starters_xp3 + s.captain_xp3 AS projected3
+       s.starters_xp + s.captain_xp AS projected     -- captain counts double
 FROM sums AS s
 LEFT JOIN v_squad_fixtures AS f ON f.squad_id = s.squad_id;
 

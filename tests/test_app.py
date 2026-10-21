@@ -90,28 +90,12 @@ def text(at):
 
 
 def payload(at):
-    """The data the team sheet was last given (the app keeps a copy in session state)."""
-    return at.session_state["team_payload"]
-
-
-# Streamlit is pinned to 1.66.0: act() uses AppTest's private _tree and _run.
-def act(at, action):
-    """Post `action` from the team sheet, as the page's send() does, and rerun."""
+    """The JSON the component page was built from (first iframe element)."""
     import json
-    from streamlit.proto.WidgetStates_pb2 import WidgetStates
-    sheet = at.get("component_instance")
-    assert len(sheet) == 1
-    states = WidgetStates()
-    states.widgets.extend(at._tree.get_widget_states().widgets)
-    act.n = getattr(act, "n", 0) + 1
-    w = states.widgets.add()
-    w.id = sheet[0].proto.id
-    w.json_value = json.dumps({**action, "n": act.n})
-    return at._run(widget_state=states)
-
-
-def plan_state(moves, ft=1, team=TEAM_ID):
-    return {"team": team, "moves": moves, "ft": ft, "last_n": 0, "error": None, "focus_id": None}
+    import re
+    frames = at.get("iframe")
+    assert len(frames) == 1
+    return json.loads(re.search(r"const DATA = (.*?);\n", frames[0].proto.srcdoc, re.S).group(1))
 
 
 def sells(at):
@@ -129,20 +113,8 @@ def test_app_renders_component(env):
     assert next(c for c in p["cards"] if c["name"] == "P9009")["captain"]
     assert "Analysing your GW5 squad" in text(at)
     assert not any("Suggested moves" in m.value for m in at.markdown)   # old list is gone
+    assert at.expander[0].label == "Edit squad"
     assert at.tabs[0].label == "Your team"
-    assert p["plan"] is None and p["ft"] == 1 and p["bank"] == 0.0 and p["error"] is None
-    assert p["base_grades"] == p["grades"]
-    assert {c["id"] for c in p["pool"]["FWD"]} >= {POOL + 10, POOL + 15}
-    sheet = at.get("component_instance")
-    assert len(sheet) == 1
-    import json
-    assert json.loads(sheet[0].proto.json_args)["payload"] == p     # what the page draws
-
-
-def test_app_has_no_edit_squad_box(env):
-    at = run()
-    assert not at.get("expandable")
-    assert not at.selectbox and not at.number_input and len(at.button) == 1   # just Analyse
 
 
 def test_app_weakness_tab(env):
@@ -160,17 +132,6 @@ def test_app_weakness_table_computed_once_per_database(env, monkeypatch):
     calls = []
     real = cards.weakness_table
     monkeypatch.setattr(cards, "weakness_table", lambda conn: calls.append(1) or real(conn))
-    at = run()
-    at.run()
-    assert not at.exception
-    assert len(calls) == 1
-
-
-def test_app_replacement_pool_computed_once_per_database(env, monkeypatch):
-    from fpl import cards
-    calls = []
-    real = cards.replacement_pool
-    monkeypatch.setattr(cards, "replacement_pool", lambda conn: calls.append(1) or real(conn))
     at = run()
     at.run()
     assert not at.exception
@@ -219,72 +180,31 @@ def test_app_footer_source_and_repo_link(env, monkeypatch):
     assert "https://github.com/example/fpl/blob/main/reports/backtest.md" in foot
 
 
-def test_app_plan_from_session_moves(env):
-    from fpl.plan import Move
+def test_app_swap_recalculates(env):
     at = run()
     before = payload(at)["projected"]
-    at.session_state["plan"] = plan_state([Move(USER + 10, POOL + 10)])   # starting FWD, xp 4 -> 15
+    at.selectbox(key="swap_out").select(USER + 10)       # a starting FWD, xp 4
     at.run()
-    assert not at.exception
-    p = payload(at)
-    assert p["plan"]["n_changes"] == 1 and "P9110" in [c["name"] for c in p["cards"]]
-    assert p["projected"] == pytest.approx(before + 11)
-    assert p["base_grades"] != p["grades"] or p["plan"]["compare"]["grades"] == []
-    new = next(c for c in p["cards"] if c["id"] == POOL + 10)
-    assert new["was"] == "P9010" and new["original_id"] == USER + 10
-    assert next(c for c in p["cards"] if c["id"] == USER + 1)["was"] is None
-
-
-def test_app_sheet_actions_change_the_plan(env):
-    at = run()
-    act(at, {"type": "swap", "out_id": USER + 10, "in_id": POOL + 10})
-    assert not at.exception
-    p = payload(at)
-    assert p["plan"]["n_changes"] == 1 and p["focus_id"] == POOL + 10
-    act(at, {"type": "set_ft", "ft": 3})
-    assert payload(at)["ft"] == 3
-    act(at, {"type": "undo", "original_id": USER + 10})
-    p = payload(at)
-    assert p["plan"] is None and "P9010" in [c["name"] for c in p["cards"]]
-    assert p["ft"] == 3                                            # undo keeps the estimate
-
-
-def test_app_swap_error_reaches_the_sheet(env):
-    at = run()
-    act(at, {"type": "swap", "out_id": USER + 10, "in_id": POOL + 1})   # a GK for a FWD
-    p = payload(at)
-    assert p["error"] and p["plan"] is None and not at.error
-
-
-def test_app_plan_resets_for_another_team(env):
-    from fpl.plan import Move
-    at = run()
-    at.session_state["plan"] = plan_state([Move(USER + 10, POOL + 10)], team="999")
+    at.selectbox(key="swap_in").select(POOL + 10)        # FWD with xp 15
     at.run()
-    assert payload(at)["plan"] is None
-
-
-def test_app_plan_that_no_longer_applies_starts_again(env):
-    from fpl.plan import Move
-    at = run()
-    at.session_state["plan"] = plan_state([Move(USER + 10, POOL + 1)])   # a GK for a FWD
-    at.run()
+    at.button(key="apply_swap").click().run()
     assert not at.exception
-    p = payload(at)
-    assert p["plan"] is None and p["error"] and at.session_state["plan"]["moves"] == []
+    after = payload(at)["projected"]
+    assert after == pytest.approx(before + 11)
+    assert "P9110" in [c["name"] for c in payload(at)["cards"]]
 
 
-def test_app_over_budget_plan_shows_not_errors(env):
-    from fpl.plan import Move
+def test_app_swap_error_shown(env):
+    at = run()
+    at.selectbox(key="swap_out").select(USER + 10)
+    at.run()
+    at.selectbox(key="swap_in").select(POOL + 15)        # FWD on team 8: fine
+    at.run()
     env.execute("UPDATE player_snapshot SET now_cost = 500 WHERE player_id = ?", (POOL + 15,))
     env.commit()
-    at = run()
-    at.session_state["plan"] = plan_state([Move(USER + 10, POOL + 15)])
-    at.run()
-    assert not at.exception and not at.error
-    p = payload(at)
-    assert p["bank"] < 0 and p["plan"]["bank"] == p["bank"]
-    assert "P9115" in [c["name"] for c in p["cards"]]
+    st.cache_resource.clear()
+    at.button(key="apply_swap").click().run()
+    assert any("Over budget" in e.value for e in at.error)
 
 
 def test_app_bench_suggestion_names_the_starter_it_replaces(env):
@@ -306,33 +226,20 @@ def test_app_sees_refreshed_database_file(env):
     assert "Player data may be out of date" in run().warning[0].value
 
 
-def test_app_changes_use_free_transfers(env):
-    from fpl.plan import Move
+def test_app_test_swaps_use_up_free_transfers(env):
     at = run()
     s0 = sells(at)
     assert s0 and all(not v["hit"] for v in s0.values())
-    opts = [o for c in payload(at)["cards"] for o in c["options"]]
-    assert opts and all(o["hit"] == 0 for o in opts)
-    at.session_state["plan"] = plan_state([Move(USER + 10, POOL + 10)], ft=1)
+    at.selectbox(key="swap_out").select(USER + 10)
     at.run()
+    at.selectbox(key="swap_in").select(POOL + 10)
+    at.run()
+    at.button(key="apply_swap").click().run()
+    caps = " ".join(c.value for c in at.caption)
+    assert "Your 1 test swap uses 1 free transfer, so these assume 0 free transfers left." in caps
     s = sells(at)
     assert s and all(v["hit"] == 4 for v in s.values())
-    p = payload(at)
-    assert p["ft"] == 1 and p["plan"]["ft_used"] == 1 and p["plan"]["hit"] == 0
-    cards = {c["id"]: c for c in p["cards"]}
-    # selling another original costs a hit; replacing the IN player does not open a change
-    assert all(o["hit"] == 4 for o in cards[USER + 1]["options"])
-    assert all(o["hit"] == 0 for o in cards[POOL + 10]["options"])
-    assert not any("test swap" in c.value for c in at.caption)
-
-
-def test_app_card_options_name_the_starter(env):
-    p = payload(run())
-    bench_mid = next(c for c in p["cards"] if c["name"] == "P9014")
-    assert bench_mid["options"] and bench_mid["options"][0]["starts_instead_of"] == "P9006"
-    assert bench_mid["selling_price"] == pytest.approx(5.0)
-    assert all(o["starts_instead_of"] is None
-               for o in next(c for c in p["cards"] if c["name"] == "P9006")["options"])
+    assert at.number_input(key=f"ft_{TEAM_ID}").value == 1     # the user's own estimate stays
 
 
 def test_app_names_player_missing_from_db(env, monkeypatch):
@@ -388,31 +295,3 @@ def test_weakness_frame_xg_columns_1dp_and_leakiest_highlighted():
     lit = {(sty.data.index[r], cols[c]) for (r, c), css in sty.ctx.items() if css}
     assert lit == {("A", "GK"), ("B", "DEF"), ("A", "MID"), ("B", "FWD"),
                    ("A", "GK xG"), ("A", "DEF xG"), ("B", "MID xG"), ("B", "FWD xG")}
-
-
-def test_app_junk_action_does_not_crash(env):
-    at = run()
-    for i, junk in enumerate(["swap", 5, {"type": "swap", "n": "x"},
-                              {"type": "set_ft", "ft": "9" * 5000}]):
-        at.session_state["sheet_action"] = junk if not isinstance(junk, dict) else {**junk, "n": i + 1}
-        at.run()
-        assert not at.exception
-
-
-def test_app_stashed_action_dropped_on_fetch_error(env):
-    FakeApp.error = FplApiError("down", status=503)
-    at = run()
-    at.session_state["sheet_action"] = {"type": "reset", "n": 1}
-    at.run()
-    assert "sheet_action" not in at.session_state
-
-
-def test_relabel_plan_grades_uses_strip_labels():
-    import app
-    assert app.relabel_plan_grades(None) is None
-    pl = {"compare": {"grades": [["midfield", "B", "A"], ["fixtures", "C", "B"],
-                                 ["risk", "D", "C"], ["bench", "E", "D"]], "bank": [1, 2]}}
-    out = app.relabel_plan_grades(pl)
-    assert [g[0] for g in out["compare"]["grades"]] == [
-        "Midfield", "Fixtures (next 5)", "Injury / rotation risk", "Bench"]
-    assert out["compare"]["bank"] == [1, 2]
