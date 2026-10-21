@@ -175,3 +175,196 @@ def test_bridge_ready_height_and_send():
     assert "streamlit:setFrameHeight" in types
     value = next(m for m in out["posted"] if m["type"] == "streamlit:setComponentValue")
     assert value["value"] == {"type": "reset", "n": 8} and value["dataType"] == "json"
+
+
+# ---- replacement list ----
+def squad_payload(**top):
+    """Squad of Raya (GK, ARS), Saka (MID, ARS) + a pool with a few MIDs."""
+    pl = payload()
+    pl["cards"].append(dict(pl["cards"][0], id=2, name="Saka", full_name="Bukayo Saka",
+                            pos="MID", club="ARS", price=10.0))
+    for c in pl["cards"]:
+        c.update(selling_price=5.0, options=[], was=None, original_id=None)
+
+    def row(i, name, club, price, xp3, full=None):
+        return {"id": i, "name": name, "full_name": full or name, "initials": name[:2].upper(),
+                "club": club, "price": price, "xp3": xp3,
+                "fixtures": [{"opp": "BUR", "home": True, "fdr": 2}]}
+    pl["pool"] = {"GK": [row(50, "Pickford", "EVE", 5.0, 9.0)],
+                  "DEF": [],
+                  "MID": [row(2, "Saka", "ARS", 10.0, 14.0),
+                          row(10, "Palmer", "CHE", 10.5, 15.0),
+                          row(11, "Mbeumo", "BRE", 7.5, 12.0),
+                          row(12, "Odegaard", "ARS", 8.0, 11.0),
+                          row(13, "Álvarez", "MCI", 9.0, 10.0)],
+                  "FWD": [row(60, "Haaland", "MCI", 14.0, 20.0)]}
+    pl["bank"] = 0.5
+    pl.update(top)
+    return pl
+
+
+def list_html(pl, pick=1, after="openReplace()", **kw):
+    import os
+    os.environ["AFTER"] = after
+    try:
+        return render(pl, pick, **kw)["panel"]
+    finally:
+        del os.environ["AFTER"]
+
+
+@needs_node
+def test_replace_button_in_stats_panel():
+    panel = render(squad_payload(), 1)["panel"]
+    assert "Replace" in panel and "openReplace()" in panel
+
+
+@needs_node
+def test_replace_list_puts_options_first_with_thumbs():
+    pl = squad_payload()
+    pl["cards"][1]["options"] = [{"id": 11, "gain3": 3.2, "hit": 0, "starts_instead_of": None},
+                                 {"id": 13, "gain3": 1.0, "hit": 0, "starts_instead_of": None}]
+    panel = list_html(pl)
+    assert "← back to stats" in panel and "Suggested for your team" in panel
+    assert panel.index("Mbeumo") < panel.index("Álvarez") < panel.index("Palmer")
+    assert "👍 +3.2 pts" in panel and "👍 +1.0 pts" in panel
+    assert panel.count("👍") == 3   # header + 2 rows
+
+
+@needs_node
+def test_replace_list_excludes_squad_and_other_positions():
+    panel = list_html(squad_payload())
+    assert "Palmer" in panel and "Haaland" not in panel and "Pickford" not in panel
+    assert 'data-in="2"' not in panel     # Saka himself is in the squad
+
+
+@needs_node
+def test_club_full_rows_greyed_with_reason():
+    pl = squad_payload()
+    for i in (3, 4):
+        pl["cards"].append(dict(pl["cards"][1], id=i, name=f"X{i}", full_name=f"X{i}", club="CHE"))
+    panel = list_html(pl)   # out = Saka (ARS); CHE has 2 -> Palmer fine
+    assert "already 3 from this club" not in panel
+    pl["cards"].append(dict(pl["cards"][1], id=5, name="X5", full_name="X5", club="CHE"))
+    panel = list_html(pl)
+    palmer = next(r for r in panel.split('<div class="rl') if "Palmer" in r)
+    assert "already 3 from this club" in palmer and "data-in" not in palmer
+    assert 'data-in="11"' in panel
+
+
+@needs_node
+def test_club_count_ignores_the_player_leaving():
+    """Replacing an ARS player with ARS squad count 3 still allows another ARS player."""
+    pl = squad_payload()
+    pl["cards"].append(dict(pl["cards"][1], id=3, name="X3", full_name="X3", club="ARS"))
+    panel = list_html(pl)   # Raya, Saka, X3 = 3 ARS; Saka leaves -> 2
+    assert 'data-in="12"' in panel and "already 3 from this club" not in panel
+
+
+@needs_node
+def test_amber_price_when_unaffordable():
+    panel = list_html(squad_payload())   # cap = 0.5 + 5.0 = 5.5
+    assert 'class="pr amb">£7.5m' in panel
+    pl = squad_payload(bank=3.0)         # cap 8.0
+    panel = list_html(pl)
+    assert 'class="pr">£7.5m' in panel and 'class="pr amb">£9.0m' in panel
+
+
+@needs_node
+def test_no_options_over_budget_message():
+    msg = "No player in this position gets you back within budget"
+    assert msg in list_html(squad_payload(bank=-1.0))
+    assert msg not in list_html(squad_payload(bank=1.0))
+    pl = squad_payload(bank=-1.0)
+    pl["cards"][1]["options"] = [{"id": 11, "gain3": 1.0, "hit": 0, "starts_instead_of": None}]
+    assert msg not in list_html(pl)
+
+
+@needs_node
+def test_hit_shown_on_option():
+    pl = squad_payload()
+    pl["cards"][1]["options"] = [{"id": 11, "gain3": 3.2, "hit": 4, "starts_instead_of": None}]
+    assert "+3.2 pts, −4 hit" in list_html(pl)
+    pl["cards"][1]["options"][0]["hit"] = 0
+    assert "hit" not in list_html(pl).split("Mbeumo")[1].split("Palmer")[0]
+
+
+@needs_node
+def test_names_escaped_in_list():
+    pl = squad_payload()
+    pl["pool"]["MID"][1]["name"] = "<b>Evil</b>"
+    pl["pool"]["MID"][1]["full_name"] = "<b>Evil</b>"
+    pl["error"] = "bad <i>x</i>"
+    panel = list_html(pl)
+    assert "&lt;b&gt;Evil&lt;/b&gt;" in panel and "<b>Evil" not in panel
+    assert "bad &lt;i&gt;x&lt;/i&gt;" in panel
+
+
+@needs_node
+def test_search_is_case_and_accent_insensitive():
+    panel = list_html(squad_payload(), after="openReplace();setQ('ALVAREZ')")
+    assert "Álvarez" in panel and "Palmer" not in panel
+
+
+@needs_node
+def test_sort_by_price_and_club():
+    p1 = list_html(squad_payload(), after="openReplace();setSort('price')")
+    assert p1.index("Palmer") < p1.index("Álvarez") < p1.index("Mbeumo")
+    p2 = list_html(squad_payload(), after="openReplace();setSort('club')")
+    assert p2.index("Mbeumo") < p2.index("Palmer") < p2.index("Álvarez")
+
+
+@needs_node
+def test_row_click_sends_swap():
+    out = render(squad_payload(), 1, frame=True)
+    import os
+    os.environ["AFTER"] = "openReplace();swapIn(11)"
+    try:
+        out = render(squad_payload(), 1, frame=True)
+    finally:
+        del os.environ["AFTER"]
+    value = next(m for m in out["posted"] if m["type"] == "streamlit:setComponentValue")
+    assert value["value"] == {"type": "swap", "out_id": 2, "in_id": 11, "n": 1}
+
+
+@needs_node
+def test_error_shown_in_stats_panel():
+    assert 'class="warn">bad' in render(squad_payload(error="bad move"), 1)["panel"]
+
+
+@needs_node
+def test_list_mode_survives_rerun_and_resets_after_swap():
+    import os
+    pl = squad_payload()
+    os.environ["AFTER"] = "openReplace();setQ('pal');render(" + json.dumps(pl) + ")"
+    try:
+        panel = render(pl, 1)["panel"]
+        assert "← back to stats" in panel and 'value="pal"' in panel
+        pl2 = squad_payload(focus_id=1)
+        os.environ["AFTER"] = ("openReplace();setQ('pal');swapIn(11);render(" + json.dumps(pl2) + ")")
+        panel = render(pl2, 1)["panel"]
+    finally:
+        del os.environ["AFTER"]
+    assert "← back to stats" not in panel and "David Raya" in panel
+
+
+@needs_node
+def test_phone_panel_stays_under_selected_row_after_rerun(tmp_path):
+    cards = []
+    for i, pos in enumerate(["GK", "DEF", "MID", "FWD"]):
+        cards.append(payload(pos=pos, id=i, name=f"P{i}")["cards"][0])
+    pl = payload()
+    pl["cards"] = cards
+    js, data = page_script(tmp_path, pl)
+    again = tmp_path / "again.json"
+    harness = Path(__file__).parent / "js" / "pick_harness.js"
+
+    def run(next_pl):
+        again.write_text(json.dumps(next_pl))
+        out = subprocess.run(["node", str(harness), str(js), str(data), "2", str(again)],
+                             capture_output=True, text=True, check=False)
+        assert out.returncode == 0, out.stderr
+        return json.loads(out.stdout)
+    res = run(pl)                                     # same payload: still under the MID row
+    assert res["open"] and res["afterNode"] == "panel" and res["afterRow"] == ["MID"]
+    res = run(dict(pl, focus_id=1))                   # a swap brought focus to the DEF
+    assert res["open"] and res["afterRow"] == ["DEF"]

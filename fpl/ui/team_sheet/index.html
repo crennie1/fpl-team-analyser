@@ -55,6 +55,23 @@ body{margin:0;overflow-x:hidden;font-family:-apple-system,Segoe UI,Roboto,sans-s
 .kit{width:52px;height:52px;display:block;margin:2px auto 2px;filter:drop-shadow(0 2px 3px rgba(0,0,0,.45))}
 .proj b.pj{display:block}.g.gx b{color:#8e9bc4}.sell-note{margin-top:6px}.cap{display:inline-block;font-size:9px;font-weight:800;color:#0b1020;background:#ffd400;border-radius:8px;padding:0 5px;margin-left:3px}.fl{color:#ffb000}
 .stale{display:none}
+.rep,.back{background:#2b4a9a;border:1px solid #4a6fd0;color:#fff;border-radius:8px;padding:7px 14px;font-size:13px;font-weight:700;cursor:pointer;margin:0 0 4px}
+.back{background:none;border:none;color:#9fb0de;padding:0;margin-bottom:8px}
+.srch{width:100%;background:#0f1a36;border:1px solid #2c3f73;color:#e8ecff;border-radius:8px;padding:8px 10px;font-size:14px;margin:6px 0}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px}
+.chip{background:rgba(127,140,200,.13);border:1px solid #2c3f73;color:#b4c0e6;border-radius:14px;padding:3px 10px;font-size:12px;cursor:pointer}
+.chip.on{background:#2b4a9a;color:#fff;border-color:#4a6fd0}
+.rl{display:flex;align-items:center;gap:8px;padding:6px;border-radius:10px;border:1px solid transparent;cursor:pointer}
+.rl:hover{background:rgba(127,140,200,.15)}
+.rl.full{opacity:.4;cursor:default}.rl.full:hover{background:none}
+.rl .kit{width:34px;height:34px;margin:0;flex:none}
+.rl .mid{flex:1;min-width:0}.rl .mid b{font-size:13px}
+.rl .fxs .opp{margin:2px 2px 0 0}
+.rl .rt{text-align:right;flex:none}.rl .rt b{display:block;font-size:15px}.rl .rt span{font-size:12px;color:#9fb0de}
+.rl .gn{font-size:12px;font-weight:700;color:#38d39f}
+.rl .why{font-size:11px;color:#ff8da1}
+.rl .pr.amb{color:#ffb000;font-weight:700}
+.rlist{max-height:420px;overflow-y:auto}
 </style></head><body>
 <div class="grades" id="grades"></div>
 <div class="wrap"><div class="pitch" id="pitch"></div><div class="panel" id="panel"></div></div>
@@ -65,6 +82,7 @@ const DEFAULT_KIT={body:'#6b7280',sleeves:'#4b5563',text:'#ffffff',pattern:'plai
 const kitOf=c=>DATA.kits[c]||DEFAULT_KIT;
 const num=(v,d=1)=>v==null?'–':Number(v).toFixed(d);
 let ALL=[],starters=[],bench=[],sel=null;
+let listMode=false,q='',sortKey='sug',openP=false,pendingSwap=false,lastFocus=null;   // panel state; survives a render()
 function shirt(club,initials){
  const k=kitOf(club);let body=k.body,defs='',pid='k'+String(club).replace(/\W/g,'')+Math.random().toString(36).slice(2,7);
  if(k.pattern==='stripes'){const[a,b]=k.pattern_colors;defs=`<pattern id="${pid}" width="10" height="10" patternUnits="userSpaceOnUse"><rect width="5" height="10" fill="${esc(a)}"/><rect x="5" width="5" height="10" fill="${esc(b)}"/></pattern>`;body=`url(#${pid})`}
@@ -89,20 +107,62 @@ function sellBlock(p){const s=p.sell;if(!s)return '';
  const hit=s.hit?` · <b>−${s.hit} hit</b>`:'';
  const inst=s.starts_instead_of?` (starts instead of ${esc(s.starts_instead_of)})`:'';
  return `<div class="swap"><div class="h">↘ Suggested sell</div><div class="r"><div style="width:40px">${shirt(s.to_club,s.initials)}</div><div><b>${esc(s.to_full_name)}</b> <span class="note">${esc(s.to_club)}${inst}</span><div class="note">extra points over the next 3 gameweeks${hit}</div></div><div class="gain">+${num(s.gain3)}</div></div><div class="note sell-note">Best single move — each suggestion is checked on its own against your current squad, so pick one rather than making all of them.</div></div>`}
+const fold=s=>String(s==null?'':s).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+const SORTS=[['sug','Suggested first'],['xp3','Pts 3 wks'],['price','Price'],['club','Club']];
+function replRow(r,o,out,counts,cap){
+ const full=(counts[r.club]||0)-(out.club===r.club?1:0)>=3,amb=r.price>cap+1e-9;
+ const fx=(r.fixtures||[]).slice(0,3).map(f=>`<span class="opp d${fdr(f)}">${oppTxt(f)}</span>`).join('');
+ const gn=o?`<div class="gn">👍 +${num(o.gain3)} pts${o.hit>0?`, −${num(o.hit,0)} hit`:''}${o.starts_instead_of?` (starts instead of ${esc(o.starts_instead_of)})`:''}</div>`:'';
+ const body=`${shirt(r.club,r.initials)}<div class="mid"><b>${esc(r.name)}</b> <span class="note">${esc(r.club)}</span>${gn}<div class="fxs">${fx}</div>${full?'<div class="why">already 3 from this club</div>':''}</div><div class="rt"><b class="pr${amb?' amb':''}">£${num(r.price)}m</b><span>${num(r.xp3)} pts</span></div>`;
+ return full?`<div class="rl full">${body}</div>`:`<div class="rl" data-in="${esc(r.id)}" onclick="swapIn(${Number(r.id)})">${body}</div>`}
+function replRows(){
+ const out=sel,inSquad=new Set(ALL.map(c=>c.id)),counts={};ALL.forEach(c=>{counts[c.club]=(counts[c.club]||0)+1});
+ const cap=(DATA.bank||0)+(out.selling_price||0),needle=fold(q.trim());
+ const pool=((DATA.pool||{})[out.pos]||[]).filter(r=>!inSquad.has(r.id)&&(!needle||fold(r.name+' '+r.full_name).includes(needle)));
+ const opts=new Map((out.options||[]).map(o=>[o.id,o]));
+ const items=pool.map(r=>({r,o:opts.get(r.id)||null}));
+ const row=x=>replRow(x.r,x.o,out,counts,cap);
+ if(sortKey==='sug'){
+  const sug=(out.options||[]).map(o=>items.find(x=>x.r.id===o.id)).filter(Boolean);
+  return (sug.length?`<div class="sec">👍 Suggested for your team</div>${sug.map(row).join('')}<div class="sec">Everyone else</div>`:'')+items.filter(x=>!x.o).map(row).join('')}
+ const key={xp3:(a,b)=>b.r.xp3-a.r.xp3,price:(a,b)=>b.r.price-a.r.price||b.r.xp3-a.r.xp3,club:(a,b)=>String(a.r.club).localeCompare(String(b.r.club))||b.r.xp3-a.r.xp3}[sortKey];
+ return items.slice().sort(key).map(row).join('')}
+function replPanel(){
+ const p=sel,none=!(p.options||[]).length&&(DATA.bank||0)<0;
+ return `<button class="close" onclick="closeP()">×</button><button class="back" onclick="backStats()">← back to stats</button>
+ <h2>Replace ${esc(p.full_name)}</h2><div class="meta">${esc(p.pos)} · ${esc(p.club)} · sells for ${p.selling_price==null?'–':'£'+num(p.selling_price)+'m'}</div>
+ ${DATA.error?`<div class="warn">${esc(DATA.error)}</div>`:''}
+ <input class="srch" type="search" placeholder="Search by name" value="${esc(q)}" oninput="setQ(this.value)">
+ <div class="chips">${SORTS.map(([k,t])=>`<span class="chip${k===sortKey?' on':''}" onclick="setSort('${k}')">${t}</span>`).join('')}</div>
+ ${none?'<div class="note">No player in this position gets you back within budget</div>':''}
+ <div class="rlist" id="rlist">${replRows()}</div>`}
+function openReplace(){if(!sel)return;listMode=true;draw()}
+function backStats(){listMode=false;draw()}
+function setSort(k){sortKey=k;draw()}
+function setQ(v){q=v;const el=document.getElementById('rlist');if(el)el.innerHTML=replRows();else draw()}
+function swapIn(id){if(!sel)return;pendingSwap=true;send({type:'swap',out_id:sel.id,in_id:id})}
+// Narrow screens: an open panel sits under the selected card's row (draw() re-appends it to .wrap).
+function placePanel(){
+ if(window.innerWidth>760||!openP||!sel)return;
+ const el=document.querySelector('#pitch .p[data-i="'+ALL.indexOf(sel)+'"]');if(!el)return;
+ const panel=document.getElementById('panel'),row=el.parentNode;row.after(panel);panel.classList.add('open')}
 function draw(){
  document.querySelector('.wrap').appendChild(document.getElementById('panel'));
  document.getElementById('grades').innerHTML=Object.entries(DATA.grades).map(([a,g])=>`<div class="g g${esc(g)}"><b>${esc(g)}</b><span>${esc(a)}</span></div>`).join('')+`<div class="proj"><b>${num(DATA.projected)} pts</b><span>projected · average manager ${num(DATA.average)}</span></div>`;
  const by=pos=>starters.filter(p=>p.pos===pos).map(card).join('');
  document.getElementById('pitch').innerHTML=['FWD','MID','DEF','GK'].map(x=>`<div class="row">${by(x)}</div>`).join('')+`<div class="bench"><div class="lbl">BENCH</div><div class="row">${bench.map(card).join('')}</div></div>`;
  const panel=document.getElementById('panel');
- if(!sel){panel.innerHTML='<div class="note">No players to show.</div>';fit();return}
+ if(!sel){panel.innerHTML='<div class="note">No players to show.</div>';placePanel();fit();return}
+ if(listMode){panel.innerHTML=replPanel();placePanel();fit();return}
  const p=sel,gk=p.pos==='GK',l6=p.last6||{};
  const sb=(t,v,m,s)=>`<div class="sb"><span class="t">${t}</span><span class="b"><i style="width:${v==null?0:Math.min(100,v/m*100)}%"></i></span><span class="v">${s}</span></div>`;
  const chanceLbl=gk?'Clean sheet chance':'DefCon chance';
  const expl=gk?`<b>Clean sheet chance</b> = how likely his team keeps a clean sheet this week, which earns a goalkeeper 4 points. Goalkeepers have no DefCon bonus.`:`<b>DefCon chance</b> = how likely he earns FPL's 2 bonus points for defensive work this week. Defenders need 10+ clearances, blocks, interceptions and tackles in a match; midfielders and forwards need 12+, with ball recoveries also counting. Based on how often he hit it in his last 6 games, adjusted for the opponent.`;
  panel.innerHTML=`<button class="close" onclick="closeP()">×</button>
  <h2>${esc(p.full_name)}${p.captain?' (C)':''}</h2><div class="meta">${esc(p.pos)} · ${esc(p.club)} · ${p.price==null?'–':'£'+num(p.price)+'m'} · ${p.owned==null?'–':esc(p.owned)+'% owned'}</div>
+ ${DATA.error?`<div class="warn">${esc(DATA.error)}</div>`:''}
  ${p.flag?`<div class="warn">⚠ ${esc(p.flag)}</div>`:''}
+ <button class="rep" onclick="openReplace()">Replace</button>
  ${sellBlock(p)}
  <div class="kp" style="margin-top:12px"><div><b>${num(p.xp)}</b><span>xP next GW</span></div><div><b>${num(p.xp3)}</b><span>xP next 3</span></div><div><b>${p.bar_pct==null?'–':p.bar_pct+'%'}</b><span>${chanceLbl}</span></div></div>
  <div class="note">${expl}</div>
@@ -110,18 +170,21 @@ function draw(){
  <div class="sec">Last 6 gameweeks</div>${sb('Form (pts/gm)',l6.form,10,num(l6.form))}${sb('xG',l6.xg,7,num(l6.xg))}${sb('xA',l6.xa,7,num(l6.xa))}${gk?'':sb('DefCon hits',l6.defcon_pct,100,l6.defcon_apps?`${l6.defcon_hits} of ${l6.defcon_apps}`:'–')}
  <div class="sec">Opponent weakness</div><div class="note">${p.weakness?esc(p.weakness)+'.':'Not enough data yet.'}</div>
  <div class="sec">Set pieces</div><div class="note">${p.set_pieces?esc(p.set_pieces):'No set-piece duties'}</div>`;
- fit()}
-function pick(i){sel=ALL[i];draw();
- if(window.innerWidth<=760){const panel=document.getElementById('panel'),row=document.querySelector('#pitch .p[data-i="'+i+'"]').parentNode;
-  row.after(panel);panel.classList.add('open');panel.scrollIntoView({block:'nearest'})}
- fit()}
-function closeP(){document.getElementById('panel').classList.remove('open');fit()}
+ placePanel();fit()}
+function pick(i){sel=ALL[i];listMode=false;openP=true;draw();
+ if(window.innerWidth<=760)document.getElementById('panel').scrollIntoView({block:'nearest'})}
+function closeP(){openP=false;document.getElementById('panel').classList.remove('open');fit()}
 // The one draw entry: Streamlit calls it with each new payload (the tests call it directly).
 // The selected card survives a redraw; focus_id (the player just swapped in) takes over.
 function render(payload){DATA=payload;ALL=DATA.cards;
  starters=ALL.filter(p=>p.starter);bench=ALL.filter(p=>!p.starter);
  const keep=sel&&ALL.find(p=>p.id===sel.id);
- sel=ALL.find(p=>p.id===DATA.focus_id)||keep||ALL.find(p=>p.sell)||ALL.find(p=>p.starter)||ALL[0];
+ const fresh=DATA.focus_id!=null&&(pendingSwap||DATA.focus_id!==lastFocus);
+ const foc=fresh?ALL.find(p=>p.id===DATA.focus_id):null;
+ lastFocus=DATA.focus_id;pendingSwap=false;
+ const before=sel&&sel.id;
+ sel=foc||keep||ALL.find(p=>p.sell)||ALL.find(p=>p.starter)||ALL[0];
+ if(foc){listMode=false;q=''}else if(!sel||sel.id!==before)listMode=false;
  counter=Math.max(counter,DATA.n||0);
  draw()}
 // ---- bridge to Streamlit (declared component, apiVersion 1). Guarded so the page script
