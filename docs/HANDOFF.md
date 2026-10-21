@@ -88,7 +88,7 @@ Full ranked list with sizes: `docs/ROADMAP.md`. In short:
 3. **Build in small tasks**, each by a fresh helper, each reviewed, with fixes re-checked.
 4. **Final whole-project review**, then merge to `main`, push, and check the live site.
 
-Tests: `.venv/bin/pytest -q` (275 passing as of 21 Oct). Commits end with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
+Tests: `.venv/bin/pytest -q` (280 passing as of 21 Oct). Commits end with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 
 **Where the swap feature stands:** the feature was built and reviewed on 21 Oct 2026 on the `panel-swaps` branch. Merging to `main` and pushing are waiting for the owner's OK, so it is not live yet.
 
