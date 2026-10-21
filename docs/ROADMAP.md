@@ -19,7 +19,7 @@ Ranked by impact on the two goals: getting hired as a data analyst, and possibly
 | 13 | **Season rollover check** (before August 2027) | Makes sure the switch to 2027-28 picks the right seasons automatically. | Small | 30 min |
 
 ## Suggested order over time
-- **This week:** #2 is done. Next,  use the app for a gameweek and update your CV/README (no code).
+- **This week:** #2 is done. Next, use the app for a gameweek and update your CV/README (no code).
 - **Next 2 weeks:** #3 and #4, then #12 whenever you have half an hour.
 - **Around GW12:** #1, then #5.
 - **Later / if going paid:** #7, #8, #9, then #6.
