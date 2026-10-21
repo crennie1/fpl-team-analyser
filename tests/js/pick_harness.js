@@ -6,7 +6,7 @@ const fs = require('fs');
 const log = {};
 const mk = (id) => ({ id, classList: { s: new Set(), add(c) { this.s.add(c); }, remove(c) { this.s.delete(c); } },
   innerHTML: '', after(n) { log.afterRow = this.cards; log.afterNode = n.id; }, appendChild() {}, scrollIntoView() {} });
-const els = { grades: mk('grades'), panel: mk('panel') };
+const els = { grades: mk('grades'), panel: mk('panel'), bar: mk('bar'), plan: mk('plan') };
 const cardsByIndex = {};
 els.pitch = mk('pitch');
 Object.defineProperty(els.pitch, 'innerHTML', { get() { return this._h || ''; }, set(h) {

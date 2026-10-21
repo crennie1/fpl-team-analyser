@@ -72,9 +72,31 @@ body{margin:0;overflow-x:hidden;font-family:-apple-system,Segoe UI,Roboto,sans-s
 .rl .why{font-size:11px;color:#ff8da1}
 .rl .pr.amb{color:#ffb000;font-weight:700}
 .rlist{max-height:420px;overflow-y:auto}
+.p.new{box-shadow:0 0 0 2px #4da3ff}.p.new.sel{box-shadow:0 0 0 2px #4da3ff,0 0 0 5px #ffd400}
+.intag{position:absolute;top:-11px;left:50%;transform:translateX(-50%);background:#4da3ff;color:#0b1020;font-size:9px;font-weight:800;padding:2px 7px;border-radius:9px;white-space:nowrap;max-width:96%;overflow:hidden;text-overflow:ellipsis}
+.undo{display:block;margin-top:3px;font-size:10px;color:#9fb0de;text-decoration:underline;cursor:pointer}
+.pbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;background:#14203f;border:1px solid #34509a;border-radius:10px;padding:8px 10px;margin:14px 18px 0;font-size:13px}
+.pill{background:#1d2b52;border-radius:12px;padding:2px 10px;font-size:12px}
+.pill.amber{background:#ffb000;color:#111;font-weight:700}.pill.red{background:#ff5c7a;color:#fff;font-weight:700}
+.btn{background:none;border:1px solid #34509a;border-radius:8px;padding:3px 10px;font-size:12px;color:#cfe0ff;cursor:pointer}
+.btn.right{margin-left:auto}
+.ft{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:#9fb0de}.ft b{color:#e8ecff;min-width:10px;text-align:center}
+.ft .btn{padding:0 8px;font-size:14px}
+.plan{margin:0 18px 18px;background:#111a33;border:1px solid #2c3f73;border-radius:12px;padding:12px}
+.plan h4{margin:0 0 8px;font-size:14px}
+.cols{display:flex;gap:16px;flex-wrap:wrap}.cols>div{flex:1;min-width:240px}
+.grid{display:grid;grid-template-columns:auto 1fr 1fr 1fr;gap:4px 10px;font-size:13px}
+.grid .h{color:#8e9bc4;font-size:11px}
+.up{color:#38d39f;font-weight:700}.dn{color:#ff5c7a;font-weight:700}
+.outin{display:flex;gap:6px;align-items:center;padding:5px 0;border-bottom:1px solid #1c2747;font-size:13px;flex-wrap:wrap}
+.outin .a{color:#8e9bc4}.outin .d{margin-left:auto}
+.plan .cap2{font-size:12px;color:#8e9bc4;margin-top:6px}
+.arr{font-size:12px;margin-left:3px}
 </style></head><body>
 <div class="grades" id="grades"></div>
+<div id="bar"></div>
 <div class="wrap"><div class="pitch" id="pitch"></div><div class="panel" id="panel"></div></div>
+<div id="plan"></div>
 <script>
 let DATA={cards:[],grades:{},kits:{}};   // the payload, set by render()
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -94,20 +116,22 @@ const oppTxt=f=>`${esc(f.opp)} (${f.home?'H':'A'})`;
 const fdr=f=>Math.min(5,Math.max(2,f.fdr||3));
 const XP_COLOUR={green:'#38d39f',amber:'#fff',red:'#ff5c7a'};   // v1 rule: chance <= 50% is red
 function card(p){const i=ALL.indexOf(p),f=p.fixtures[0],xp=p.xp;
- return `<div class="p${p===sel?' sel':''}${p.sell?' sell':''}" data-i="${i}" style="--club:${esc(kitOf(p.club).body==='#ffffff'?kitOf(p.club).sleeves:kitOf(p.club).body)}" onclick="pick(${i})">
- ${p.sell?'<span class="selltag">↘ SELL</span>':''}
+ return `<div class="p${p===sel?' sel':''}${p.was?' new':''}${p.sell?' sell':''}" data-i="${i}" style="--club:${esc(kitOf(p.club).body==='#ffffff'?kitOf(p.club).sleeves:kitOf(p.club).body)}" onclick="pick(${i})">
+ ${p.was?`<span class="intag">IN · was ${esc(p.was)}</span>`:p.sell?'<span class="selltag">↘ SELL</span>':''}
  <div class="pos">${esc(p.pos)}${p.captain?' · C':''}${p.flag?' · <span class="fl">⚠</span>':''}</div>
  ${shirt(p.club,p.initials)}
  <div class="nm">${esc(p.name)}</div>
  <div class="xp" style="color:${XP_COLOUR[p.colour]||'#fff'}">${num(xp)}<small> xP</small></div>
  ${f?`<span class="opp d${fdr(f)}">${oppTxt(f)}</span>`:'<span class="opp d3">–</span>'}
  <div class="bar" title="${p.pos==='GK'?'Clean sheet chance: how likely his team keeps a clean sheet':'DefCon chance: how likely he earns the 2 defensive-contribution points'}"><i style="width:${p.bar_pct||0}%"></i></div>
- <div class="dc">${esc(p.bar_label)} ${p.bar_pct==null?'–':p.bar_pct+'%'}</div></div>`}
+ <div class="dc">${esc(p.bar_label)} ${p.bar_pct==null?'–':p.bar_pct+'%'}</div>
+ ${p.was?`<span class="undo" onclick="event.stopPropagation();undoCard(${Number(p.original_id)})">undo</span>`:''}</div>`}
 function sellBlock(p){const s=p.sell;if(!s)return '';
  const hit=s.hit?` · <b>−${s.hit} hit</b>`:'';
  const inst=s.starts_instead_of?` (starts instead of ${esc(s.starts_instead_of)})`:'';
  return `<div class="swap"><div class="h">↘ Suggested sell</div><div class="r"><div style="width:40px">${shirt(s.to_club,s.initials)}</div><div><b>${esc(s.to_full_name)}</b> <span class="note">${esc(s.to_club)}${inst}</span><div class="note">extra points over the next 3 gameweeks${hit}</div></div><div class="gain">+${num(s.gain3)}</div></div><div class="note sell-note">Best single move — each suggestion is checked on its own against your current squad, so pick one rather than making all of them.</div></div>`}
 const fold=s=>String(s==null?'':s).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+const POS_PLURAL={GK:'goalkeepers',DEF:'defenders',MID:'midfielders',FWD:'forwards'};
 const SORTS=[['sug','Suggested first'],['xp3','Pts 3 wks'],['price','Price'],['club','Club']];
 function replRow(r,o,out,counts,cap){
  const full=(counts[r.club]||0)-(out.club===r.club?1:0)>=3,amb=r.price>cap+1e-9;
@@ -124,7 +148,7 @@ function replRows(){
  const row=x=>replRow(x.r,x.o,out,counts,cap);
  if(sortKey==='sug'){
   const sug=(out.options||[]).map(o=>items.find(x=>x.r.id===o.id)).filter(Boolean);
-  return (sug.length?`<div class="sec">👍 Suggested for your team</div>${sug.map(row).join('')}<div class="sec">Everyone else</div>`:'')+items.filter(x=>!x.o).map(row).join('')}
+  return (sug.length?`<div class="sec">👍 Suggested for your team</div>${sug.map(row).join('')}<div class="sec">All ${POS_PLURAL[out.pos]||'players'}</div>`:'')+items.filter(x=>!x.o).map(row).join('')}
  const key={xp3:(a,b)=>b.r.xp3-a.r.xp3,price:(a,b)=>b.r.price-a.r.price||b.r.xp3-a.r.xp3,club:(a,b)=>String(a.r.club).localeCompare(String(b.r.club))||b.r.xp3-a.r.xp3}[sortKey];
  return items.slice().sort(key).map(row).join('')}
 function replPanel(){
@@ -146,9 +170,29 @@ function placePanel(){
  if(window.innerWidth>760||!openP||!sel)return;
  const el=document.querySelector('#pitch .p[data-i="'+ALL.indexOf(sel)+'"]');if(!el)return;
  const panel=document.getElementById('panel'),row=el.parentNode;row.after(panel);panel.classList.add('open')}
+const gl=g=>'ABCDE'.indexOf(g);
+function cmp(a,b){const x=gl(a),y=gl(b);return x<0||y<0||x===y?0:(x<y?1:-1)}   // 1: a better than b
+function gradeArrow(area,g){const c=cmp(g,(DATA.base_grades||{})[area]);return c>0?'<span class="arr up">▲</span>':c<0?'<span class="arr dn">▼</span>':''}
+const money=(v,sign)=>{const r=Math.round(Math.abs(v)*10)/10,neg=v<0&&r>0;return (neg?'−':sign&&r>0?'+':'')+'£'+r.toFixed(1)+'m'};
+const plural=(n,w)=>n+' '+w+(n===1?'':'s');
+function drawPlan(){
+ const P=DATA.plan,ft=DATA.ft==null?1:DATA.ft;
+ const ftc=`<span class="ft">Free transfers <button class="btn" onclick="setFt(${ft-1})" ${ft<=0?'disabled':''}>−</button><b>${esc(ft)}</b><button class="btn" onclick="setFt(${ft+1})" ${ft>=5?'disabled':''}>+</button></span>`;
+ const bar=document.getElementById('bar'),sec=document.getElementById('plan');
+ if(!P){bar.innerHTML=`<div class="pbar">${ftc}</div>`;sec.innerHTML='';return}
+ bar.innerHTML=`<div class="pbar"><b style="font-size:12px">Your plan:</b><span class="pill">${plural(P.n_changes,'change')}</span><span class="pill">${plural(P.ft_used,'free transfer')} used</span>${P.hit>0?`<span class="pill red">−${esc(P.hit)} pt hit</span>`:''}${P.bank<0?`<span class="pill amber">£${Math.abs(P.bank).toFixed(1)}m over budget</span>`:''}${ftc}<button class="btn right" onclick="send({type:'undo_last'})">↶ Undo last</button><button class="btn" onclick="send({type:'reset'})">Reset to my team</button></div>`;
+ const C=P.compare,d=(a,b)=>{const v=b-a;return `<span class="${Math.abs(v)<0.05?'':v>0?'up':'dn'}">${Math.abs(v)<0.05?'–':(v>0?'+':'−')+Math.abs(v).toFixed(1)}</span>`};
+ const rows=[['Pts next 3 wks',C.pts3],['…after hits',C.pts3_after_hits]].map(([t,[a,b]])=>`<span>${t}</span><span>${num(a)}</span><span>${num(b)}</span>${d(a,b)}`).join('')
+  +C.grades.map(([t,a,b])=>{const c=cmp(b,a);return `<span>${esc(t)}</span><span>${esc(a)}</span><span>${esc(b)}</span><span class="${c>0?'up':'dn'}">${c>0?'▲':c<0?'▼':'–'}</span>`}).join('')
+  +`<span>Bank</span><span>${money(C.bank[0])}</span><span>${money(C.bank[1])}</span>${C.bank[1]<0?'<span class="dn">over</span>':d(C.bank[0],C.bank[1])}`;
+ const outs=P.changes.map(c=>{const m=-c.diff;return `<div class="outin"><span>${esc(c.out_name)} £${num(c.out_price)}m</span><span class="a">→</span><span>${esc(c.in_name)} £${num(c.in_price)}m</span><span class="d ${m<-0.049?'dn':''}">${money(m)}</span></div>`}).join('');
+ sec.innerHTML=`<div class="plan"><h4>Your plan vs your real team</h4><div class="cols"><div><div class="grid"><span class="h"></span><span class="h">Real team</span><span class="h">Plan</span><span class="h">Diff</span>${rows}</div></div><div>${outs}<div class="cap2">Make these in the FPL app. This site never changes your real team.</div></div></div></div>`}
+function undoCard(id){send({type:'undo',original_id:id})}
+function setFt(v){send({type:'set_ft',ft:Math.max(0,Math.min(5,Number(v)||0))})}
 function draw(){
  document.querySelector('.wrap').appendChild(document.getElementById('panel'));
- document.getElementById('grades').innerHTML=Object.entries(DATA.grades).map(([a,g])=>`<div class="g g${esc(g)}"><b>${esc(g)}</b><span>${esc(a)}</span></div>`).join('')+`<div class="proj"><b>${num(DATA.projected)} pts</b><span>projected · average manager ${num(DATA.average)}</span></div>`;
+ document.getElementById('grades').innerHTML=Object.entries(DATA.grades).map(([a,g])=>`<div class="g g${esc(g)}"><b>${esc(g)}${gradeArrow(a,g)}</b><span>${esc(a)}</span></div>`).join('')+`<div class="proj"><b>${num(DATA.projected)} pts</b><span>projected · average manager ${num(DATA.average)}</span></div>`;
+ drawPlan();
  const by=pos=>starters.filter(p=>p.pos===pos).map(card).join('');
  document.getElementById('pitch').innerHTML=['FWD','MID','DEF','GK'].map(x=>`<div class="row">${by(x)}</div>`).join('')+`<div class="bench"><div class="lbl">BENCH</div><div class="row">${bench.map(card).join('')}</div></div>`;
  const panel=document.getElementById('panel');
@@ -171,7 +215,7 @@ function draw(){
  <div class="sec">Opponent weakness</div><div class="note">${p.weakness?esc(p.weakness)+'.':'Not enough data yet.'}</div>
  <div class="sec">Set pieces</div><div class="note">${p.set_pieces?esc(p.set_pieces):'No set-piece duties'}</div>`;
  placePanel();fit()}
-function pick(i){sel=ALL[i];listMode=false;openP=true;draw();
+function pick(i){if(sel&&ALL[i]&&ALL[i].id!==sel.id)q='';sel=ALL[i];listMode=false;openP=true;draw();
  if(window.innerWidth<=760)document.getElementById('panel').scrollIntoView({block:'nearest'})}
 function closeP(){openP=false;document.getElementById('panel').classList.remove('open');fit()}
 // The one draw entry: Streamlit calls it with each new payload (the tests call it directly).

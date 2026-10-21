@@ -368,3 +368,109 @@ def test_phone_panel_stays_under_selected_row_after_rerun(tmp_path):
     assert res["open"] and res["afterNode"] == "panel" and res["afterRow"] == ["MID"]
     res = run(dict(pl, focus_id=1))                   # a swap brought focus to the DEF
     assert res["open"] and res["afterRow"] == ["DEF"]
+
+
+# ---- plan bar, IN tags, before-vs-after ----
+def plan_payload(**top):
+    pl = squad_payload()
+    pl["cards"][1].update(was="Bruno", original_id=7)
+    pl["ft"] = 1
+    pl["base_grades"] = {"attack": "B"}
+    pl["plan"] = {
+        "changes": [{"out_id": 7, "out_name": "Bruno <b>", "out_price": 8.0, "in_id": 2,
+                     "in_name": "Saka", "in_price": 10.0, "diff": 2.0}],
+        "n_changes": 1, "ft_used": 1, "hit": 0, "bank": 0.5,
+        "compare": {"pts3": [10.0, 14.0], "pts3_after_hits": [10.0, 14.0],
+                    "grades": [["attack", "B", "A"]], "bank": [2.5, 0.5]}}
+    pl.update(top)
+    return pl
+
+
+@needs_node
+def test_no_plan_no_bar_tags_or_section():
+    pl = squad_payload()
+    pl["ft"] = 2
+    pl["plan"] = None
+    out = render(pl, 1)
+    assert "Free transfers" in out["bar"] and "setFt(3)" in out["bar"]
+    for bad in ("Your plan", "Undo last", "Reset to my team"):
+        assert bad not in out["bar"]
+    assert out["plan"] == "" and "IN ·" not in out["pitch"] and "▲" not in out["grades"]
+
+
+@needs_node
+def test_in_tag_and_undo_send_original_id():
+    out = render(plan_payload(), 1, frame=True, send={"type": "undo", "original_id": 7})
+    assert "IN · was Bruno" in out["pitch"] and "undoCard(7)" in out["pitch"]
+    value = next(m for m in out["posted"] if m["type"] == "streamlit:setComponentValue")
+    assert value["value"] == {"type": "undo", "original_id": 7, "n": 1}
+    import os
+    os.environ["AFTER"] = "undoCard(7)"
+    try:
+        out = render(plan_payload(), 1, frame=True)
+    finally:
+        del os.environ["AFTER"]
+    assert [m["value"] for m in out["posted"] if m["type"] == "streamlit:setComponentValue"] == [
+        {"type": "undo", "original_id": 7, "n": 1}]
+
+
+@needs_node
+def test_bar_pills_hit_and_over_budget_only_when_nonzero():
+    bar = render(plan_payload(), 1)["bar"]
+    assert "1 change" in bar and "1 free transfer used" in bar
+    assert "pt hit" not in bar and "over budget" not in bar
+    assert "Undo last" in bar and "Reset to my team" in bar and "undo_last" in bar and "'reset'" in bar
+    pl = plan_payload()
+    pl["plan"].update(n_changes=3, ft_used=2, hit=4, bank=-0.8)
+    bar = render(pl, 1)["bar"]
+    assert "3 changes" in bar and "2 free transfers used" in bar
+    assert "−4 pt hit" in bar and "£0.8m over budget" in bar
+
+
+@needs_node
+def test_plan_section_copy_and_rows():
+    pl = plan_payload()
+    pl["plan"]["changes"].append(dict(pl["plan"]["changes"][0], out_name="Cole", in_name="Foden",
+                                      out_price=7.0, in_price=7.0, diff=0.0))
+    sec = render(pl, 1)["plan"]
+    assert "Your plan vs your real team" in sec
+    assert "Make these in the FPL app. This site never changes your real team." in sec
+    assert sec.count('class="outin"') == 2
+    assert "Bruno &lt;b&gt;" in sec and "<b>" not in sec.split("Bruno")[1].split("→")[0]
+    assert "−£2.0m" in sec and "£0.0m" in sec    # dearer incoming player = money spent
+    assert "Pts next 3 wks" in sec and "+4.0" in sec and "▲" in sec and "£0.5m" in sec
+
+
+@needs_node
+def test_grade_arrow_when_letter_changes():
+    assert "▲" in render(plan_payload(), 1)["grades"]
+    assert "▼" in render(plan_payload(base_grades={"attack": "A"}, grades={"attack": "C"}), 1)["grades"]
+    g = render(plan_payload(base_grades={"attack": "A"}, grades={"attack": "A"}), 1)["grades"]
+    assert "▲" not in g and "▼" not in g
+
+
+@needs_node
+def test_list_header_names_position_and_search_resets_on_other_card():
+    pl = squad_payload()
+    pl["cards"][1]["options"] = [{"id": 11, "gain3": 3.2, "hit": 0, "starts_instead_of": None}]
+    assert "All midfielders" in list_html(pl) and "Everyone else" not in list_html(pl)
+    import os
+    os.environ["AFTER"] = "openReplace();setQ('pal');pick(0)"
+    try:
+        out = render(squad_payload(), 1)
+        os.environ["AFTER"] = "openReplace();setQ('pal');pick(0);pick(1);openReplace()"
+        out2 = render(squad_payload(), 1)
+    finally:
+        del os.environ["AFTER"]
+    assert 'value=""' in out2["panel"]
+
+
+@needs_node
+def test_set_ft_sends_clamped_value():
+    import os
+    os.environ["AFTER"] = "setFt(9);setFt(-2);setFt(3)"
+    try:
+        out = render(plan_payload(), 1, frame=True)
+    finally:
+        del os.environ["AFTER"]
+    assert [m["value"]["ft"] for m in out["posted"] if m["type"] == "streamlit:setComponentValue"] == [5, 0, 3]
