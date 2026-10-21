@@ -119,3 +119,24 @@ def test_player_missing_from_db_is_named_not_dropped_silently(db_with_squads, ad
     assert a.missing == [99999]
     assert len(a.players) == 14
     assert analyse_squad(db_with_squads, squad_of(pids[:14] + [9015])).missing == []
+
+
+def test_projected3_is_starters_plus_captain(db_with_squads, add_squad):
+    pids = add_squad(db_with_squads, "user", 9000)
+    xp3 = [float(i) for i in range(1, 16)]
+    for pid, x in zip(pids, xp3):
+        db_with_squads.execute("UPDATE xp_next_cache SET xp_next3 = ? WHERE player_id = ?", (x, pid))
+    db_with_squads.commit()
+    # starters 1..11 sum to 66; captain is slot 9 (xp3 9) and counts again; bench excluded
+    assert metrics(db_with_squads)["projected3"] == pytest.approx(66 + 9)
+    result = analyse_squad(db_with_squads, squad_of(pids))
+    assert result.projected3 == pytest.approx(75.0)
+
+
+def test_grades_unchanged_by_projected3_column(db_with_squads, add_squad):
+    pids = add_squad(db_with_squads, "user", 9000, xp=20.0)
+    before = grades(db_with_squads)
+    db_with_squads.execute("UPDATE xp_next_cache SET xp_next3 = 999")
+    db_with_squads.commit()
+    assert grades(db_with_squads) == before
+    assert set(before) == {"attack", "midfield", "defence", "fixtures", "risk", "bench", "projected"}

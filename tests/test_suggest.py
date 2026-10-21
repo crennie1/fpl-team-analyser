@@ -1,9 +1,11 @@
+from dataclasses import replace
+
 import pytest
 
 from fpl.analyse import analyse_squad
 from fpl.db import refresh_xp_cache
 from fpl.squad import Pick, Squad
-from fpl.suggest import suggest
+from fpl.suggest import options_for, suggest
 
 
 def set_xp3(conn, pid, xp3):
@@ -210,3 +212,85 @@ def test_starter_out_has_no_starts_instead(db_with_squads, add_squad):
     set_xp3(db_with_squads, pids[5], 0.0)
     add_player(db_with_squads, 7001, "MID", 300, 12.0)
     assert suggest(db_with_squads, squad)[0].starts_instead is None
+
+
+def price(conn, pid):
+    return conn.execute("SELECT now_cost FROM v_latest_snapshot WHERE player_id = ?",
+                        (pid,)).fetchone()[0]
+
+
+def test_options_match_sell_gain(db_with_squads, add_squad):
+    squad, pids = base(db_with_squads, add_squad)
+    set_xp3(db_with_squads, pids[5], 0.0)
+    add_player(db_with_squads, 7001, "MID", 300, 12.0)
+    s = suggest(db_with_squads, squad)[0]
+    o = next(o for o in options_for(db_with_squads, squad, s.out_id) if o.in_id == s.in_id)
+    assert o.gain3 == pytest.approx(s.gain3)
+
+
+def test_options_at_most_three_positive_sorted(db_with_squads, add_squad):
+    squad, pids = base(db_with_squads, add_squad)
+    set_xp3(db_with_squads, pids[5], 0.0)
+    for i, x in enumerate((5.0, 9.0, 7.0, 3.0, 0.0, 12.0)):
+        add_player(db_with_squads, 7001 + i, "MID", 300 + i, x)
+    opts = options_for(db_with_squads, squad, pids[5])
+    assert len(opts) == 3
+    assert all(o.gain3 > 0 for o in opts)
+    assert [o.gain3 for o in opts] == sorted((o.gain3 for o in opts), reverse=True)
+    assert [o.in_id for o in opts] == [7006, 7002, 7003]
+    assert options_for(db_with_squads, squad, pids[5], k=1)[0].in_id == 7006
+
+
+def test_options_no_hit_and_need_positive_gain(db_with_squads, add_squad):
+    squad, pids = base(db_with_squads, add_squad, ft=0)
+    add_player(db_with_squads, 7001, "MID", 300, 12.2)     # gain 0.2: below MIN_NET_GAIN, still > 0
+    add_player(db_with_squads, 7002, "MID", 301, 12.0)     # gain 0: excluded
+    opts = options_for(db_with_squads, squad, pids[5])
+    assert [o.in_id for o in opts] == [7001]
+    assert opts[0].gain3 == pytest.approx(0.2) and opts[0].starts_instead is None
+
+
+def test_options_bench_rule_names_starter(db_with_squads, add_squad):
+    squad, pids, weak, bench = bench_case(db_with_squads, add_squad)
+    add_player(db_with_squads, 7001, "MID", 300, 12.0, cost=90, xp_next=5.0)
+    add_player(db_with_squads, 7002, "MID", 301, 30.0, cost=90, xp_next=1.0)   # would not start
+    opts = options_for(db_with_squads, squad, bench)
+    assert [o.in_id for o in opts] == [7001]
+    assert opts[0].starts_instead == weak
+    assert opts[0].gain3 == pytest.approx(12.0 - 6.0)
+
+
+def test_options_respect_three_per_club(db_with_squads, add_squad):
+    squad, pids = base(db_with_squads, add_squad)
+    for pid in (pids[0], pids[1], pids[2]):
+        db_with_squads.execute("UPDATE player SET team_id = 250 WHERE player_id = ?", (pid,))
+    db_with_squads.commit()
+    add_player(db_with_squads, 7001, "MID", 250, 30.0)
+    add_player(db_with_squads, 7002, "MID", 301, 15.0)
+    assert [o.in_id for o in options_for(db_with_squads, squad, pids[5])] == [7002]
+
+
+def test_options_empty_when_unaffordable(db_with_squads, add_squad):
+    squad, pids = base(db_with_squads, add_squad)
+    add_player(db_with_squads, 7001, "MID", 300, 30.0, cost=90)
+    assert options_for(db_with_squads, squad, pids[5]) == []
+
+
+def test_options_over_budget_only_back_within_budget(db_with_squads, add_squad):
+    squad, pids = base(db_with_squads, add_squad)
+    out = pids[5]
+    add_player(db_with_squads, 7001, "MID", 300, 30.0, cost=50)    # brings bank to -8: not allowed
+    add_player(db_with_squads, 7002, "MID", 301, 20.0, cost=42)    # exactly back to 0
+    add_player(db_with_squads, 7003, "MID", 302, 15.0, cost=30)
+    poor = replace(squad, bank=-8)
+    opts = options_for(db_with_squads, poor, out)
+    assert [o.in_id for o in opts] == [7002, 7003]
+    assert all(price(db_with_squads, o.in_id) <= poor.bank + 50 for o in opts)
+
+
+def test_suggest_over_budget_returns_list_not_error(db_with_squads, add_squad):
+    squad, pids = base(db_with_squads, add_squad)
+    add_player(db_with_squads, 7001, "MID", 300, 30.0, cost=10)
+    result = suggest(db_with_squads, replace(squad, bank=-50))
+    assert isinstance(result, list)
+    assert stored_ids(db_with_squads) == set(pids)
