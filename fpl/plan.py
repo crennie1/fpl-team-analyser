@@ -76,3 +76,25 @@ def add(base: Squad, moves: list[Move], out_id: int, in_id: int, conn,
     new = [*moves, Move(out_id, in_id, promote_over)]
     build(base, new, conn)
     return new
+
+
+def summary(base: Squad, current: Squad, base_analysis, plan_analysis, names: dict,
+            prices: dict, free_transfers: int) -> dict | None:
+    """The plan in numbers (money in GBP m), or None when nothing has changed."""
+    pairs = changes(base, current)
+    if not pairs:
+        return None
+    n = len(pairs)
+    h = hit(n, free_transfers)
+    rows = [{"out_id": o, "out_name": names.get(o), "out_price": round(prices[o], 1),
+             "in_id": i, "in_name": names.get(i), "in_price": round(prices[i], 1),
+             "diff": round(prices[i] - prices[o], 1)} for o, i in pairs]
+    grades = [[area, before, plan_analysis.grades.get(area)]
+              for area, before in base_analysis.grades.items()
+              if area != "projected" and plan_analysis.grades.get(area) != before]
+    bank, real_bank = round(current.bank / 10, 1), round(base.bank / 10, 1)
+    return {"changes": rows, "n_changes": n, "ft_used": min(n, free_transfers), "hit": h,
+            "bank": bank,
+            "compare": {"pts3": [base_analysis.projected3, plan_analysis.projected3],
+                        "pts3_after_hits": [base_analysis.projected3, plan_analysis.projected3 - h],
+                        "grades": grades, "bank": [real_bank, bank]}}

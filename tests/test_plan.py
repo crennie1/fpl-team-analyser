@@ -1,6 +1,7 @@
 import pytest
 
-from fpl.plan import Move, add, build, changes, extra_hit, hit, undo_last, undo_original
+from fpl.analyse import Analysis
+from fpl.plan import Move, add, summary, build, changes, extra_hit, hit, undo_last, undo_original
 from fpl.squad import SquadError
 from fpl.suggest import HIT_COST
 from tests.test_suggest import add_player, make_user
@@ -118,3 +119,38 @@ def test_undo_refuses_when_later_promotion_loses_its_starter(db_with_squads, add
     with pytest.raises(SquadError, match="not in your squad"):
         undo_original(base, m, a, db_with_squads)
     assert m == before
+
+
+def _analysis(grades, p3, gw=7):
+    return Analysis([], grades, 0.0, 0.0, gw, None, projected3=p3)
+
+
+def test_summary_none_without_changes(db_with_squads, add_squad):
+    base, _ = setup(db_with_squads, add_squad)
+    a = _analysis({"midfield": "B"}, 30.0)
+    assert summary(base, base, a, a, {}, {}, 1) is None
+
+
+def test_summary_hits_and_only_changed_grades(db_with_squads, add_squad):
+    base, pids = setup(db_with_squads, add_squad)
+    add_player(db_with_squads, 7001, "MID", 300, 5.0)
+    add_player(db_with_squads, 7002, "FWD", 301, 5.0)
+    m = add(base, [], pids[5], 7001, db_with_squads)
+    m = add(base, m, pids[10], 7002, db_with_squads)
+    cur = build(base, m, db_with_squads)
+    real = _analysis({"midfield": "B", "attack": "C", "projected": "x"}, 30.0)
+    plan_a = _analysis({"midfield": "A", "attack": "C", "projected": "y"}, 36.0)
+    names = {pids[5]: "Out1", pids[10]: "Out2", 7001: "In1", 7002: "In2"}
+    prices = {pids[5]: 5.04, pids[10]: 6.0, 7001: 5.5, 7002: 5.0}
+    s = summary(base, cur, real, plan_a, names, prices, 1)
+    assert s["n_changes"] == 2 and s["ft_used"] == 1
+    assert s["hit"] == 4 and s["compare"]["pts3_after_hits"][1] == pytest.approx(plan_a.projected3 - 4)
+    assert s["compare"]["pts3_after_hits"][0] == pytest.approx(30.0)
+    assert s["compare"]["pts3"] == [30.0, 36.0]
+    assert s["compare"]["grades"] == [["midfield", "B", "A"]]
+    assert all(b != a for _, b, a in s["compare"]["grades"])
+    assert s["compare"]["bank"] == [round(base.bank / 10, 1), round(cur.bank / 10, 1)]
+    assert s["bank"] == round(cur.bank / 10, 1)
+    c = s["changes"][0]
+    assert (c["out_id"], c["out_name"], c["in_id"], c["in_name"]) == (pids[5], "Out1", 7001, "In1")
+    assert (c["out_price"], c["in_price"], c["diff"]) == (5.0, 5.5, 0.5)
