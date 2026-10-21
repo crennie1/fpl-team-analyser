@@ -228,3 +228,19 @@ def test_apply_action_undo_and_reset(db_with_squads, add_squad):
     s2 = apply_action(s, {"type": "reset", "n": 3}, base, db_with_squads)
     assert s2["moves"] == [] and s2["ft"] == 1
     assert s["moves"] == [Move(pids[5], 7001), Move(pids[10], 7002)]   # input not changed
+
+
+def test_apply_action_junk_leaves_state_unchanged(db_with_squads, add_squad):
+    base, pids = setup(db_with_squads, add_squad)
+    state = fresh_state()
+    junk = ["swap", None, 5, [1, 2], {}, {"type": "swap", "n": "x"}, {"type": "swap", "n": 1},
+            {"type": "swap", "n": 1, "out_id": None, "in_id": 3},
+            {"type": "undo", "n": 1, "original_id": "abc"},
+            {"type": "set_ft", "n": 1, "ft": "9" * 5000}, {"type": "set_ft", "n": 1, "ft": None},
+            {"type": "undo", "n": 1}, {"type": "swap", "n": float("nan")},
+            {"type": "swap", "n": {"a": 1}}]
+    for action in junk:
+        s = apply_action(state, action, base, db_with_squads)
+        assert s["moves"] == [] and s["ft"] == state["ft"]
+    s = apply_action(state, {"type": "set_ft", "n": 4, "ft": None}, base, db_with_squads)
+    assert s["last_n"] == 4 and s["ft"] == state["ft"]

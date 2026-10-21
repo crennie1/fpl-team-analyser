@@ -442,6 +442,14 @@ def test_plan_section_copy_and_rows():
 
 
 @needs_node
+def test_plan_section_freed_money_has_plus_sign():
+    pl = plan_payload()
+    pl["plan"]["changes"][0].update(out_price=10.0, in_price=7.2, diff=-2.8)
+    sec = render(pl, 1)["plan"]
+    assert '<span class="d up">+£2.8m</span>' in sec
+
+
+@needs_node
 def test_grade_arrow_when_letter_changes():
     assert "▲" in render(plan_payload(), 1)["grades"]
     assert "▼" in render(plan_payload(base_grades={"attack": "A"}, grades={"attack": "C"}), 1)["grades"]

@@ -94,6 +94,7 @@ def payload(at):
     return at.session_state["team_payload"]
 
 
+# Streamlit is pinned to 1.66.0: act() uses AppTest's private _tree and _run.
 def act(at, action):
     """Post `action` from the team sheet, as the page's send() does, and rerun."""
     import json
@@ -387,3 +388,31 @@ def test_weakness_frame_xg_columns_1dp_and_leakiest_highlighted():
     lit = {(sty.data.index[r], cols[c]) for (r, c), css in sty.ctx.items() if css}
     assert lit == {("A", "GK"), ("B", "DEF"), ("A", "MID"), ("B", "FWD"),
                    ("A", "GK xG"), ("A", "DEF xG"), ("B", "MID xG"), ("B", "FWD xG")}
+
+
+def test_app_junk_action_does_not_crash(env):
+    at = run()
+    for i, junk in enumerate(["swap", 5, {"type": "swap", "n": "x"},
+                              {"type": "set_ft", "ft": "9" * 5000}]):
+        at.session_state["sheet_action"] = junk if not isinstance(junk, dict) else {**junk, "n": i + 1}
+        at.run()
+        assert not at.exception
+
+
+def test_app_stashed_action_dropped_on_fetch_error(env):
+    FakeApp.error = FplApiError("down", status=503)
+    at = run()
+    at.session_state["sheet_action"] = {"type": "reset", "n": 1}
+    at.run()
+    assert "sheet_action" not in at.session_state
+
+
+def test_relabel_plan_grades_uses_strip_labels():
+    import app
+    assert app.relabel_plan_grades(None) is None
+    pl = {"compare": {"grades": [["midfield", "B", "A"], ["fixtures", "C", "B"],
+                                 ["risk", "D", "C"], ["bench", "E", "D"]], "bank": [1, 2]}}
+    out = app.relabel_plan_grades(pl)
+    assert [g[0] for g in out["compare"]["grades"]] == [
+        "Midfield", "Fixtures (next 5)", "Injury / rotation risk", "Bench"]
+    assert out["compare"]["bank"] == [1, 2]

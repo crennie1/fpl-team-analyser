@@ -180,6 +180,15 @@ def on_sheet_action():
     st.session_state["sheet_action"] = st.session_state.get("team_sheet")
 
 
+def relabel_plan_grades(summary):
+    """The plan summary with grade keys swapped for the labels the grade strip shows."""
+    if not summary:
+        return summary
+    labels = dict(GRADE_ROWS)
+    grades = [[labels.get(k, k), a, b] for k, a, b in summary["compare"]["grades"]]
+    return {**summary, "compare": {**summary["compare"], "grades": grades}}
+
+
 def plan_state(conn, team, base, fresh) -> dict:
     """This session's plan for `team`, with any action just posted from the team sheet applied.
 
@@ -191,7 +200,7 @@ def plan_state(conn, team, base, fresh) -> dict:
         state = {"team": team, "moves": [], "ft": base.free_transfers, "last_n": 0,
                  "error": None, "focus_id": None}
     action = ss.pop("sheet_action", None)
-    if action:
+    if isinstance(action, dict):
         state = plan.apply_action(state, action, base, conn)
     ss["plan"] = state
     return state
@@ -255,9 +264,11 @@ def render_team(conn, team, fresh):
     try:
         base = fetch_squad(team, conn)
     except SquadError as exc:
+        st.session_state.pop("sheet_action", None)   # don't let a stale click replay later
         st.error(str(exc))
         return
     except FplApiError:
+        st.session_state.pop("sheet_action", None)
         st.error(API_DOWN)
         return
 
@@ -292,7 +303,8 @@ def render_team(conn, team, fresh):
         "base_grades": {label: base_analysis.grades.get(key, "–") for key, label in GRADE_ROWS},
         "projected": analysis.projected, "average": analysis.average_projected,
         "kits": KITS, "pool": session_pool(),
-        "plan": plan.summary(base, current, base_analysis, analysis, names, prices, ft),
+        "plan": relabel_plan_grades(
+            plan.summary(base, current, base_analysis, analysis, names, prices, ft)),
         "ft": ft, "bank": round(current.bank / 10, 1),
         "focus_id": state["focus_id"], "error": state["error"],
         "n": state["last_n"]}   # the page numbers its next action after this one

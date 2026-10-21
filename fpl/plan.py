@@ -109,7 +109,12 @@ def apply_action(state: dict, action: dict, base: Squad, conn) -> dict:
     rerun never applies the same click twice. A refused change (position or club rule) leaves
     the moves as they were and puts the reason in "error".
     """
-    n = action.get("n", 0)
+    if not isinstance(action, dict):
+        return state
+    try:
+        n = int(action.get("n", 0))
+    except (TypeError, ValueError, OverflowError):
+        return state
     if n <= state["last_n"]:
         return state
     new = {**state, "last_n": n, "error": None, "focus_id": None}
@@ -134,4 +139,6 @@ def apply_action(state: dict, action: dict, base: Squad, conn) -> dict:
             new["ft"] = min(MAX_FT, max(0, int(action["ft"])))
     except SquadError as exc:
         new["error"] = str(exc)
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return {**state, "last_n": n}   # a malformed action changes nothing
     return new

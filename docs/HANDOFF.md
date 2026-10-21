@@ -90,7 +90,7 @@ Full ranked list with sizes: `docs/ROADMAP.md`. In short:
 
 Tests: `.venv/bin/pytest -q` (275 passing as of 21 Oct). Commits end with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 
-**Ready to merge:** the `panel-swaps` branch holds the finished swap feature and is ready to merge to `main`, then push and check the live site.
+**Where the swap feature stands:** the feature was built and reviewed on 21 Oct 2026 on the `panel-swaps` branch. Merging to `main` and pushing are waiting for the owner's OK, so it is not live yet.
 
 ## 10. Gotchas
 - Some database views use `exp`/`ln` functions that the app adds itself. The plain `sqlite3` command line can't query the v2 views; use Python with `from fpl import db; db.connect('data/fpl.db')`, or DB Browser for SQLite.
