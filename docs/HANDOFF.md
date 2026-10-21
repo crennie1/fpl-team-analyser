@@ -16,7 +16,8 @@ A free website that analyses any Fantasy Premier League team. It's a **portfolio
 - **Grades strip:** six grades (Attack, Midfield, Defence, Fixtures, Injury risk, Bench) relative to 500 random real FPL teams, plus projected points against the average manager.
 - **Sell suggestions** on the pitch: a red "SELL" tag, with the affordable replacement and the 3-week gain shown in the panel.
 - **Opponent weaknesses tab:** points and xG each team concedes to GK/DEF/MID/FWD.
-- **Edit squad** (below the pitch): test swaps, with budget, position and 3-per-club checks.
+- **Swap players from the team sheet:** click a player, then Replace, to see every player in that position with up to 3 👍 suggestions. Going over budget is allowed: an amber warning shows instead of blocking you, while the position and 3-per-club rules still apply. Swapped-in players get an IN tag, and a changes bar shows changes, free transfers used, −4 point hits, any over-budget amount, Undo last, Reset to my team, and a control to set your free transfers.
+- **Your plan vs your real team:** points over the next 3 weeks before and after hits, grades that changed (▲/▼), money in the bank, and an Out → In list.
 
 ## 3. The honest results (the interview story)
 Backtested on the 2025-26 season, tuned only on 2024-25 (so it's "out of sample"). Error is in points; lower is better:
@@ -38,7 +39,7 @@ Interview prep is in `docs/interview-explainer.md`: plain English, with 5 likely
 - **On a new gameweek:** re-tunes and re-runs the backtest.
 - **Saving:** the database is saved to GitHub only on a new gameweek, within 48 hours of a deadline, on Tuesdays, or on a manual run. That keeps the repo small.
 - **Calculations:** the forecasts, grades and stats are SQL views, readable in `fpl/sql/`.
-- **The site:** Streamlit (`app.py`) loads your team live from FPL and draws the card view (`fpl/ui/team_view.html`).
+- **The site:** Streamlit (`app.py`) loads your team live from FPL and draws the card view (`fpl/ui/team_sheet/index.html`).
 
 ## 5. Key decisions (made during the builds)
 - FPL's prediction is used wherever it beats my models, and the app only switches to my model if it's *strictly* better.
@@ -66,7 +67,7 @@ Full detail: `docs/2026-10-19-fpl-team-analyser-design.md` (v1), `docs/2026-10-2
 ## 8. Plan for future changes
 Full ranked list with sizes: `docs/ROADMAP.md`. In short:
 1. Test on this season's games (around gameweek 12), 30 min.
-2. **Swap a player from the stats panel, with an over-budget planning mode** (budget becomes a warning, not a block), 2.5–3.5 h. *Saved as a task card: "FPL app: panel swaps with over-budget planning".*
+2. ✅ **Done 21 Oct 2026:** swap a player from the team sheet, with an over-budget planning mode (budget is a warning, not a block).
 3. Player strengths/weaknesses and reasons for each grade, 2–3 h.
 4. "How it works" page in the app, 1–2 h.
 5. DefCon accuracy check, 2–3 h.
@@ -87,9 +88,9 @@ Full ranked list with sizes: `docs/ROADMAP.md`. In short:
 3. **Build in small tasks**, each by a fresh helper, each reviewed, with fixes re-checked.
 4. **Final whole-project review**, then merge to `main`, push, and check the live site.
 
-Tests: `.venv/bin/pytest -q` (208 passing as of 21 Oct). Commits end with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
+Tests: `.venv/bin/pytest -q` (275 passing as of 21 Oct). Commits end with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 
-**Unpushed right now:** local commits that only add `docs/ROADMAP.md` and this handoff. They go up with the next push.
+**Ready to merge:** the `panel-swaps` branch holds the finished swap feature and is ready to merge to `main`, then push and check the live site.
 
 ## 10. Gotchas
 - Some database views use `exp`/`ln` functions that the app adds itself. The plain `sqlite3` command line can't query the v2 views; use Python with `from fpl import db; db.connect('data/fpl.db')`, or DB Browser for SQLite.
