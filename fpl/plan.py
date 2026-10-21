@@ -2,7 +2,9 @@
 from dataclasses import dataclass
 
 from fpl.squad import Squad, SquadError, swap
-from fpl.suggest import HIT_COST, promote
+from fpl.suggest import HIT_COST, options_for, promote
+
+MAX_FT = 5
 
 
 @dataclass(frozen=True)
@@ -98,3 +100,38 @@ def summary(base: Squad, current: Squad, base_analysis, plan_analysis, names: di
             "compare": {"pts3": [base_analysis.projected3, plan_analysis.projected3],
                         "pts3_after_hits": [base_analysis.projected3, plan_analysis.projected3 - h],
                         "grades": grades, "bank": [real_bank, bank]}}
+
+
+def apply_action(state: dict, action: dict, base: Squad, conn) -> dict:
+    """The plan state after one team-sheet action; `state` itself is not changed.
+
+    Actions carry a number `n` that grows with each click; one already seen is ignored, so a
+    rerun never applies the same click twice. A refused change (position or club rule) leaves
+    the moves as they were and puts the reason in "error".
+    """
+    n = action.get("n", 0)
+    if n <= state["last_n"]:
+        return state
+    new = {**state, "last_n": n, "error": None, "focus_id": None}
+    kind, moves = action.get("type"), state["moves"]
+    try:
+        if kind == "swap":
+            out_id, in_id = int(action["out_id"]), int(action["in_id"])
+            # a 👍 for a bench player starts in place of the starter it was measured against
+            current = build(base, moves, conn)
+            promote_over = next((o.starts_instead for o in options_for(conn, current, out_id)
+                                 if o.in_id == in_id), None)
+            new["moves"] = add(base, moves, out_id, in_id, conn, promote_over)
+            new["focus_id"] = in_id
+        elif kind == "undo":
+            new["moves"] = undo_original(base, moves, int(action["original_id"]), conn)
+            new["focus_id"] = int(action["original_id"])
+        elif kind == "undo_last":
+            new["moves"] = undo_last(moves)
+        elif kind == "reset":
+            new["moves"] = []
+        elif kind == "set_ft":
+            new["ft"] = min(MAX_FT, max(0, int(action["ft"])))
+    except SquadError as exc:
+        new["error"] = str(exc)
+    return new

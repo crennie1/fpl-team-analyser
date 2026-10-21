@@ -59,14 +59,12 @@ body{margin:0;overflow-x:hidden;font-family:-apple-system,Segoe UI,Roboto,sans-s
 <div class="grades" id="grades"></div>
 <div class="wrap"><div class="pitch" id="pitch"></div><div class="panel" id="panel"></div></div>
 <script>
-const DATA = /*DATA*/;
+let DATA={cards:[],grades:{},kits:{}};   // the payload, set by render()
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const DEFAULT_KIT={body:'#6b7280',sleeves:'#4b5563',text:'#ffffff',pattern:'plain'};
 const kitOf=c=>DATA.kits[c]||DEFAULT_KIT;
 const num=(v,d=1)=>v==null?'–':Number(v).toFixed(d);
-const ALL=DATA.cards;
-const starters=ALL.filter(p=>p.starter), bench=ALL.filter(p=>!p.starter);
-let sel=ALL.find(p=>p.sell)||ALL.find(p=>p.starter)||ALL[0];
+let ALL=[],starters=[],bench=[],sel=null;
 function shirt(club,initials){
  const k=kitOf(club);let body=k.body,defs='',pid='k'+String(club).replace(/\W/g,'')+Math.random().toString(36).slice(2,7);
  if(k.pattern==='stripes'){const[a,b]=k.pattern_colors;defs=`<pattern id="${pid}" width="10" height="10" patternUnits="userSpaceOnUse"><rect width="5" height="10" fill="${esc(a)}"/><rect x="5" width="5" height="10" fill="${esc(b)}"/></pattern>`;body=`url(#${pid})`}
@@ -97,7 +95,7 @@ function draw(){
  const by=pos=>starters.filter(p=>p.pos===pos).map(card).join('');
  document.getElementById('pitch').innerHTML=['FWD','MID','DEF','GK'].map(x=>`<div class="row">${by(x)}</div>`).join('')+`<div class="bench"><div class="lbl">BENCH</div><div class="row">${bench.map(card).join('')}</div></div>`;
  const panel=document.getElementById('panel');
- if(!sel){panel.innerHTML='<div class="note">No players to show.</div>';return}
+ if(!sel){panel.innerHTML='<div class="note">No players to show.</div>';fit();return}
  const p=sel,gk=p.pos==='GK',l6=p.last6||{};
  const sb=(t,v,m,s)=>`<div class="sb"><span class="t">${t}</span><span class="b"><i style="width:${v==null?0:Math.min(100,v/m*100)}%"></i></span><span class="v">${s}</span></div>`;
  const chanceLbl=gk?'Clean sheet chance':'DefCon chance';
@@ -111,10 +109,29 @@ function draw(){
  <div class="sec">Next fixtures</div><div class="fx">${p.fixtures.map(f=>`<div class="d${fdr(f)}">${oppTxt(f)}</div>`).join('')||'<span class="note">No fixtures scheduled</span>'}</div>
  <div class="sec">Last 6 gameweeks</div>${sb('Form (pts/gm)',l6.form,10,num(l6.form))}${sb('xG',l6.xg,7,num(l6.xg))}${sb('xA',l6.xa,7,num(l6.xa))}${gk?'':sb('DefCon hits',l6.defcon_pct,100,l6.defcon_apps?`${l6.defcon_hits} of ${l6.defcon_apps}`:'–')}
  <div class="sec">Opponent weakness</div><div class="note">${p.weakness?esc(p.weakness)+'.':'Not enough data yet.'}</div>
- <div class="sec">Set pieces</div><div class="note">${p.set_pieces?esc(p.set_pieces):'No set-piece duties'}</div>`}
+ <div class="sec">Set pieces</div><div class="note">${p.set_pieces?esc(p.set_pieces):'No set-piece duties'}</div>`;
+ fit()}
 function pick(i){sel=ALL[i];draw();
  if(window.innerWidth<=760){const panel=document.getElementById('panel'),row=document.querySelector('#pitch .p[data-i="'+i+'"]').parentNode;
-  row.after(panel);panel.classList.add('open');panel.scrollIntoView({block:'nearest'})}}
-function closeP(){document.getElementById('panel').classList.remove('open')}
-draw();
+  row.after(panel);panel.classList.add('open');panel.scrollIntoView({block:'nearest'})}
+ fit()}
+function closeP(){document.getElementById('panel').classList.remove('open');fit()}
+// The one draw entry: Streamlit calls it with each new payload (the tests call it directly).
+// The selected card survives a redraw; focus_id (the player just swapped in) takes over.
+function render(payload){DATA=payload;ALL=DATA.cards;
+ starters=ALL.filter(p=>p.starter);bench=ALL.filter(p=>!p.starter);
+ const keep=sel&&ALL.find(p=>p.id===sel.id);
+ sel=ALL.find(p=>p.id===DATA.focus_id)||keep||ALL.find(p=>p.sell)||ALL.find(p=>p.starter)||ALL[0];
+ counter=Math.max(counter,DATA.n||0);
+ draw()}
+// ---- bridge to Streamlit (declared component, apiVersion 1). Guarded so the page script
+// also runs outside a frame (the node test harnesses).
+let counter=0;   // numbers each action; the app ignores a number it has already seen
+const inFrame=()=>typeof window!=='undefined'&&window.parent&&window.parent!==window;
+function post(type,extra){if(inFrame())window.parent.postMessage(Object.assign({isStreamlitMessage:true,type},extra),'*')}
+function fit(){if(inFrame())post('streamlit:setFrameHeight',{height:document.body.scrollHeight})}
+function send(action){post('streamlit:setComponentValue',{value:Object.assign({},action,{n:++counter}),dataType:'json'})}
+if(typeof window!=='undefined'&&window.addEventListener){
+ window.addEventListener('message',e=>{if(e.data&&e.data.type==='streamlit:render')render(e.data.args.payload)});
+ post('streamlit:componentReady',{apiVersion:1})}
 </script></body></html>

@@ -1,10 +1,11 @@
 import pytest
 
 from fpl.analyse import Analysis
-from fpl.plan import Move, add, summary, build, changes, extra_hit, hit, undo_last, undo_original
+from fpl.plan import (Move, add, apply_action, build, changes, extra_hit, hit, summary, undo_last,
+                      undo_original)
 from fpl.squad import SquadError
 from fpl.suggest import HIT_COST
-from tests.test_suggest import add_player, make_user
+from tests.test_suggest import add_player, bench_case, make_user
 
 
 def setup(conn, add_squad, ft=1):
@@ -154,3 +155,76 @@ def test_summary_hits_and_only_changed_grades(db_with_squads, add_squad):
     c = s["changes"][0]
     assert (c["out_id"], c["out_name"], c["in_id"], c["in_name"]) == (pids[5], "Out1", 7001, "In1")
     assert (c["out_price"], c["in_price"], c["diff"]) == (5.0, 5.5, 0.5)
+
+
+def fresh_state(ft=1):
+    return {"team": "1", "moves": [], "ft": ft, "last_n": 0, "error": None, "focus_id": None}
+
+
+def test_apply_action_ignores_replayed_n(db_with_squads, add_squad):
+    base, pids = setup(db_with_squads, add_squad)
+    add_player(db_with_squads, 7001, "MID", 300, 5.0)
+    act = {"type": "swap", "out_id": pids[5], "in_id": 7001, "n": 3}
+    s = apply_action(fresh_state(), act, base, db_with_squads)
+    s = apply_action(s, act, base, db_with_squads)
+    s = apply_action(s, {"type": "reset", "n": 2}, base, db_with_squads)   # older: ignored
+    assert s["moves"] == [Move(pids[5], 7001)] and s["last_n"] == 3
+    assert s["focus_id"] == 7001 and s["error"] is None
+
+
+def test_apply_action_swap_error_kept_plan_unchanged(db_with_squads, add_squad):
+    base, pids = setup(db_with_squads, add_squad)
+    # club 200 holds pids[0] and pids[8]; a third makes it full
+    db_with_squads.execute("UPDATE player SET team_id = 200 WHERE player_id = ?", (pids[1],))
+    db_with_squads.commit()
+    add_player(db_with_squads, 7001, "MID", 200, 5.0)
+    add_player(db_with_squads, 7002, "FWD", 300, 5.0)
+    s = apply_action(fresh_state(), {"type": "swap", "out_id": pids[10], "in_id": 7002, "n": 1},
+                     base, db_with_squads)
+    before = s["moves"]
+    s = apply_action(s, {"type": "swap", "out_id": pids[5], "in_id": 7001, "n": 2},
+                     base, db_with_squads)
+    assert "Too many players from one club" in s["error"]
+    assert s["moves"] == before and s["last_n"] == 2
+    s = apply_action(s, {"type": "undo_last", "n": 3}, base, db_with_squads)
+    assert s["moves"] == [] and s["error"] is None                 # next action clears it
+
+
+def test_apply_action_bench_option_promotes(db_with_squads, add_squad):
+    squad, pids, weak, bench = bench_case(db_with_squads, add_squad)
+    add_player(db_with_squads, 7001, "MID", 300, 12.0, cost=90, xp_next=5.0)   # a 👍: starts
+    add_player(db_with_squads, 7002, "MID", 301, 30.0, cost=90, xp_next=1.0)   # would not start
+    s = apply_action(fresh_state(), {"type": "swap", "out_id": bench, "in_id": 7001, "n": 1},
+                     squad, db_with_squads)
+    assert s["moves"] == [Move(bench, 7001, promote_over=weak)]
+    by_id = {p.player_id: p for p in build(squad, s["moves"], db_with_squads).picks}
+    assert by_id[7001].is_starter and not by_id[weak].is_starter
+    s = apply_action(fresh_state(), {"type": "swap", "out_id": bench, "in_id": 7002, "n": 1},
+                     squad, db_with_squads)
+    assert s["moves"] == [Move(bench, 7002)]                       # not a 👍: stays on the bench
+
+
+def test_apply_action_set_ft_bounds(db_with_squads, add_squad):
+    base, _ = setup(db_with_squads, add_squad)
+    s = apply_action(fresh_state(), {"type": "set_ft", "ft": 9, "n": 1}, base, db_with_squads)
+    assert s["ft"] == 5
+    s = apply_action(s, {"type": "set_ft", "ft": -2, "n": 2}, base, db_with_squads)
+    assert s["ft"] == 0
+    s = apply_action(s, {"type": "set_ft", "ft": 2, "n": 3}, base, db_with_squads)
+    assert s["ft"] == 2
+
+
+def test_apply_action_undo_and_reset(db_with_squads, add_squad):
+    base, pids = setup(db_with_squads, add_squad)
+    add_player(db_with_squads, 7001, "MID", 300, 5.0)
+    add_player(db_with_squads, 7002, "FWD", 301, 5.0)
+    s = fresh_state()
+    for n, (o, i) in enumerate(((pids[5], 7001), (pids[10], 7002)), start=1):
+        s = apply_action(s, {"type": "swap", "out_id": o, "in_id": i, "n": n}, base, db_with_squads)
+    s2 = apply_action(s, {"type": "undo", "original_id": pids[5], "n": 3}, base, db_with_squads)
+    assert s2["moves"] == [Move(pids[10], 7002)]
+    s2 = apply_action(s, {"type": "undo_last", "n": 3}, base, db_with_squads)
+    assert s2["moves"] == [Move(pids[5], 7001)]
+    s2 = apply_action(s, {"type": "reset", "n": 3}, base, db_with_squads)
+    assert s2["moves"] == [] and s2["ft"] == 1
+    assert s["moves"] == [Move(pids[5], 7001), Move(pids[10], 7002)]   # input not changed

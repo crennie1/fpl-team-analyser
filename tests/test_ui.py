@@ -7,7 +7,8 @@ from pathlib import Path
 import pytest
 
 from fpl.ui.kits import DEFAULT_KIT, KITS
-from app import team_view_html
+
+PAGE = Path(__file__).parent.parent / "fpl" / "ui" / "team_sheet" / "index.html"
 
 
 def payload(**card):
@@ -22,20 +23,12 @@ def payload(**card):
             "kits": KITS}
 
 
-def data_of(html):
-    m = re.search(r"const DATA = (.*?);\n", html, re.S)
-    return json.loads(m.group(1))
-
-
-def test_component_escapes_names():
-    html = team_view_html(payload(name="O'Brien</script><b>&", full_name="x</script>"))
-    assert html.count("</script>") == 1                  # only the page's own closing tag
-    assert data_of(html)["cards"][0]["name"] == "O'Brien</script><b>&"
-
-
-def test_component_gk_label():
-    html = team_view_html(payload())
-    assert "Clean sheet chance" in html
+def page_script(tmp_dir, pl):
+    """The page's script and its payload as files for the node harnesses."""
+    js, data = Path(tmp_dir) / "page.js", Path(tmp_dir) / "payload.json"
+    js.write_text(re.search(r"<script>(.*)</script>", PAGE.read_text(), re.S).group(1))
+    data.write_text(json.dumps(pl))
+    return js, data
 
 
 def test_kits_cover_current_clubs():
@@ -50,24 +43,19 @@ def test_kits_cover_current_clubs():
     assert DEFAULT_KIT["pattern"] == "plain"
 
 
-def test_sell_data_is_embedded_not_static_text():
-    sell = {"to_name": "Cherki", "to_full_name": "Rayan Cherki", "to_club": "MCI", "gain3": 18.0,
-            "hit": 4, "starts_instead_of": "Rogers"}
-    d = data_of(team_view_html(payload(sell=sell)))["cards"][0]["sell"]
-    assert d == sell
-    # without a sell the data carries none, so the panel's sell block cannot render
-    html = team_view_html(payload(sell=None))
-    assert data_of(html)["cards"][0]["sell"] is None
-    assert "Rayan Cherki" not in html
-
-
 def test_template_sell_block_is_data_driven():
-    src = (Path(__file__).parent.parent / "fpl" / "ui" / "team_view.html").read_text()
+    src = PAGE.read_text()
     assert "s.hit?" in src and "s.starts_instead_of?" in src and "p.sell" in src
 
 
+def test_page_has_no_embedded_data():
+    """The payload arrives by message (render), never baked into the page."""
+    src = PAGE.read_text()
+    assert "/*DATA*/" not in src and "streamlit:render" in src and "componentReady" in src
+
+
 def test_narrow_screens_open_panel_inline_after_row():
-    src = (Path(__file__).parent.parent / "fpl" / "ui" / "team_view.html").read_text()
+    src = PAGE.read_text()
     media = src.split("@media(max-width:760px)")[1].split("</style>")[0]
     assert "position:fixed" not in media and "position:static" in media
     assert "row.after(panel)" in src and "innerWidth<=760" in src
@@ -84,12 +72,11 @@ def test_phone_tap_opens_panel_after_the_tapped_cards_row(tmp_path):
         cards.append(base["cards"][0])
     pl = payload()
     pl["cards"] = cards
-    html = team_view_html(pl)
-    js = tmp_path / "page.js"
-    js.write_text(re.search(r"<script>(.*)</script>", html, re.S).group(1))
+    js, data = page_script(tmp_path, pl)
     harness = Path(__file__).parent / "js" / "pick_harness.js"
     for idx, pos in ((2, "MID"), (1, "DEF"), (3, "FWD"), (0, "GK")):
-        out = subprocess.run(["node", str(harness), str(js), str(idx)], capture_output=True,
+        out = subprocess.run(["node", str(harness), str(js), str(data), str(idx)],
+                             capture_output=True,
                              text=True, check=False)
         assert out.returncode == 0, out.stderr
         out = out.stdout
@@ -98,16 +85,20 @@ def test_phone_tap_opens_panel_after_the_tapped_cards_row(tmp_path):
         assert res["afterRow"] == [pos]
 
 
-def render(pl, pick=None):
-    """Run the page script in node against a stub DOM; return {"pitch": html, "panel": html}."""
+def render(pl, pick=None, frame=False, send=None):
+    """Run the page script's render(pl) in node against a stub DOM;
+    return {"pitch": html, "panel": html, "grades": html, "posted": [messages]}.
+
+    frame=True runs it as Streamlit does: inside a parent frame, drawn by a streamlit:render
+    message; `send` is then an action passed to the page's send() at the end."""
+    import os
     import tempfile
-    html = team_view_html(pl)
+    env = {**os.environ, "FRAME": "1" if frame else "", "SEND": json.dumps(send) if send else ""}
     with tempfile.TemporaryDirectory() as d:
-        js = Path(d) / "page.js"
-        js.write_text(re.search(r"<script>(.*)</script>", html, re.S).group(1))
+        js, data = page_script(d, pl)
         harness = Path(__file__).parent / "js" / "render_harness.js"
-        args = ["node", str(harness), str(js)] + ([] if pick is None else [str(pick)])
-        out = subprocess.run(args, capture_output=True, text=True, check=False)
+        args = ["node", str(harness), str(js), str(data)] + ([] if pick is None else [str(pick)])
+        out = subprocess.run(args, capture_output=True, text=True, check=False, env=env)
     assert out.returncode == 0, out.stderr
     return json.loads(out.stdout)
 
@@ -139,3 +130,48 @@ def test_sell_block_uses_payload_initials():
             "initials": "BF", "gain3": 3.0, "hit": 0, "starts_instead_of": None}
     panel = render(payload(sell=sell), 0)["panel"]
     assert ">BF</text>" in panel and ">BB</text>" not in panel
+
+
+@needs_node
+def test_render_escapes_names():
+    out = render(payload(name="O'Brien</script><b>&", full_name="x</script>"), 0)
+    assert "O&#39;Brien&lt;/script&gt;&lt;b&gt;&amp;" in out["pitch"]
+    assert "</script>" not in out["pitch"] + out["panel"]
+
+
+@needs_node
+def test_panel_sell_block_follows_payload():
+    sell = {"to_name": "Cherki", "to_full_name": "Rayan Cherki", "to_club": "MCI", "gain3": 18.0,
+            "initials": "RC", "hit": 4, "starts_instead_of": "Rogers"}
+    panel = render(payload(sell=sell), 0)["panel"]
+    assert "Rayan Cherki" in panel and "−4 hit" in panel and "starts instead of Rogers" in panel
+    assert "Rayan Cherki" not in render(payload(sell=None), 0)["panel"]
+
+
+@needs_node
+def test_render_redraws_grades_from_payload():
+    out = render(payload(), 0)
+    assert "61.5 pts" in out["grades"] and ">A<" in out["grades"]
+
+
+@needs_node
+def test_render_selects_focus_card():
+    pl = payload()
+    other = dict(pl["cards"][0], id=2, name="Saka", full_name="Bukayo Saka", pos="MID")
+    pl["cards"].append(other)
+    pl["focus_id"] = 2
+    assert "Bukayo Saka" in render(pl)["panel"]
+
+
+@needs_node
+def test_bridge_ready_height_and_send():
+    """In a frame the page says it is ready, reports its height after each draw, and send()
+    numbers every action, continuing from the payload's last seen number."""
+    pl = payload()
+    pl["n"] = 7
+    out = render(pl, 0, frame=True, send={"type": "reset"})
+    types = [m["type"] for m in out["posted"]]
+    assert types[0] == "streamlit:componentReady" and out["posted"][0]["apiVersion"] == 1
+    assert "streamlit:setFrameHeight" in types
+    value = next(m for m in out["posted"] if m["type"] == "streamlit:setComponentValue")
+    assert value["value"] == {"type": "reset", "n": 8} and value["dataType"] == "json"
