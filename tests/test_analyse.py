@@ -104,12 +104,12 @@ def test_no_reference_squads_gives_dash_grades(db_with_squads, add_squad):
 def test_xp_cache_matches_v_xp_next_after_refresh(db_with_squads):
     from fpl import db
     conn = db_with_squads
-    conn.execute("UPDATE player_snapshot SET ep_next = 9.9 WHERE player_id = 1")
+    conn.execute("UPDATE player_gw SET total_points = 9 WHERE player_id = 1 AND gw < 6")
     db.refresh_xp_cache(conn)
     cache = [tuple(r) for r in conn.execute("SELECT * FROM xp_next_cache ORDER BY player_id")]
     live = [tuple(r) for r in conn.execute("SELECT * FROM v_xp_next ORDER BY player_id")]
     assert cache == live and len(cache) > 0
-    assert conn.execute("SELECT xp_next FROM xp_next_cache WHERE player_id = 1").fetchone()[0] == 9.9
+    assert conn.execute("SELECT xp_next FROM xp_next_cache WHERE player_id = 1").fetchone()[0] == 9
 
 
 def test_player_missing_from_db_is_named_not_dropped_silently(db_with_squads, add_squad):

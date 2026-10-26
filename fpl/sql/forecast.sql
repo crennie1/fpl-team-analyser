@@ -198,9 +198,7 @@ SELECT fm.season, fm.player_id, fm.as_of_gw, tg.as_of_gw AS gw, tf.fixture_id,
                           * CASE WHEN tg.as_of_gw = fm.as_of_gw   -- chance_next: upcoming GW only (R13)
                                  THEN fm.chance_factor ELSE 1.0 END
                           * fm.pts_per_90 * COALESCE(m.mult, 1.0), 0.0)
-       END AS xp,
-       -- the fixture's FDR multiplier alone (0 for a blank), for scaling FPL's ep in v_xp_next
-       CASE WHEN tf.fixture_id IS NULL THEN 0.0 ELSE COALESCE(m.mult, 1.0) END AS mult
+       END AS xp
 FROM v_player_form AS fm
 JOIN player AS pl ON pl.season = fm.season AND pl.player_id = fm.player_id
 JOIN v_as_of_grid AS tg                       -- the target gameweeks
@@ -223,20 +221,19 @@ GROUP BY season, player_id, gw, as_of_gw;
 --
 -- In plain English: each horizon has its own source, chosen by the backtest
 -- (meta.forecast_source_1gw for xp_next, meta.forecast_source_3gw for xp_next3;
--- an older meta.forecast_source is the fallback for both):
---   'fpl_ep'  FPL's own ep_next. For the 3-gameweek number it is scaled so the two
---             never disagree:
---                 ep_next x (sum of FDR multipliers over his fixtures in the next 3 gameweeks)
---                         / (sum of FDR multipliers over his fixtures in next_gw)
---             i.e. FPL's one-week view, scaled up by how many and how hard the next
---             three weeks of fixtures are (a double gameweek counts twice, a blank zero).
---             If he has no fixture in next_gw (divide by zero) or ep_next is NULL, we
---             fall back to the model.
---   'v2'      forecast v2 (v_xp2_next); falls back to the model if he has no v2 row.
---   'model'   the v1 SQL model.
+-- an older meta.forecast_source is the fallback for both). FPL's own number is
+-- never a source: a stored 'fpl_ep', or no setting at all, is read as 'v2'.
+--   'v2'         forecast v2 (v_xp2_next).
+--   'model'      the v1 SQL model.
+--   'last5_avg'  the player's average total points over his last 5 loaded gameweeks
+--                before next_gw (each gameweek's points added up, so a double gameweek
+--                is one total), times his fixtures in next_gw (xp_next) or in
+--                next_gw .. next_gw + 2 (xp_next3). A blank gameweek counts zero.
+-- If the chosen source has no number for a player (no v2 row, a NULL v2 value, or no
+-- earlier gameweeks for last5_avg), that player falls back to the model.
 --
--- xp_source names what was actually used: 'fpl_ep', 'v2' or 'model' when both horizons
--- agree, otherwise the 1-gameweek source then the 3-gameweek one, e.g. 'fpl_ep/v2'.
+-- xp_source names what was actually used: 'v2', 'model' or 'last5_avg' when both horizons
+-- agree, otherwise the 1-gameweek source then the 3-gameweek one, e.g. 'v2/model'.
 -- defcon_chance and cs_chance are descriptive v2 numbers for the upcoming gameweek and
 -- always show, whichever source is chosen. cs_display is the clean-sheet chance the app
 -- shows: 1 - Π(1 - p) over a double gameweek's fixtures (cs_chance is their sum).
@@ -251,8 +248,8 @@ WITH next3 AS (      -- sum of the model over next_gw .. next_gw + 2
                     THEN x.xp END) AS xp_model_next,
            SUM(x.xp)               AS xp_model_next3,
            SUM(CASE WHEN x.gw = (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'next_gw')
-                    THEN x.mult END) AS mult_next,
-           SUM(x.mult)             AS mult_next3
+                    THEN x.fixture_id IS NOT NULL END) AS fixtures_next,
+           SUM(x.fixture_id IS NOT NULL) AS fixtures_next3
     FROM v_xp_fixture AS x      -- same totals as v_xp, but SQLite can push the filters into it
     WHERE x.season = (SELECT value FROM meta WHERE key = 'current_season')
       AND x.as_of_gw = (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'next_gw')
@@ -266,36 +263,49 @@ form AS (            -- start_prob for the upcoming gameweek only
     WHERE season = (SELECT value FROM meta WHERE key = 'current_season')
       AND as_of_gw = (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'next_gw')
 ),
-src AS (
-    SELECT COALESCE((SELECT value FROM meta WHERE key = 'forecast_source_1gw'),
-                    (SELECT value FROM meta WHERE key = 'forecast_source'), 'model') AS s1,
-           COALESCE((SELECT value FROM meta WHERE key = 'forecast_source_3gw'),
-                    (SELECT value FROM meta WHERE key = 'forecast_source'), 'model') AS s3
+last5 AS (           -- mean of his last 5 loaded gameweek totals before next_gw
+    SELECT player_id, AVG(pts) AS avg5
+    FROM (SELECT player_id, pts,
+                 ROW_NUMBER() OVER (PARTITION BY player_id ORDER BY gw DESC) AS rn
+          FROM (SELECT player_id, gw, SUM(total_points) AS pts
+                FROM player_gw
+                WHERE season = (SELECT value FROM meta WHERE key = 'current_season')
+                  AND gw < (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'next_gw')
+                GROUP BY player_id, gw)
+          WHERE pts IS NOT NULL)
+    WHERE rn <= 5
+    GROUP BY player_id
 ),
-pick AS (            -- which number does each horizon use? (R20 for fpl_ep)
-    SELECT n.*, sn.ep_next, v2.xp_v2_next, v2.xp_v2_next3, v2.defcon_chance_next, v2.cs_chance_next,
+src AS (             -- 'fpl_ep' (old setting) or anything unknown or missing means v2
+    SELECT CASE WHEN s1 IN ('model', 'last5_avg') THEN s1 ELSE 'v2' END AS s1,
+           CASE WHEN s3 IN ('model', 'last5_avg') THEN s3 ELSE 'v2' END AS s3
+    FROM (SELECT COALESCE((SELECT value FROM meta WHERE key = 'forecast_source_1gw'),
+                          (SELECT value FROM meta WHERE key = 'forecast_source')) AS s1,
+                 COALESCE((SELECT value FROM meta WHERE key = 'forecast_source_3gw'),
+                          (SELECT value FROM meta WHERE key = 'forecast_source')) AS s3)
+),
+pick AS (            -- which number does each horizon use?
+    SELECT n.*, l.avg5, v2.xp_v2_next, v2.xp_v2_next3, v2.defcon_chance_next, v2.cs_chance_next,
            v2.cs_display_next,
-           (src.s1 = 'fpl_ep' AND sn.ep_next IS NOT NULL
-            AND COALESCE(n.mult_next, 0) > 0) AS ep1,
-           (src.s3 = 'fpl_ep' AND sn.ep_next IS NOT NULL
-            AND COALESCE(n.mult_next, 0) > 0) AS ep3,
            (src.s1 = 'v2' AND v2.xp_v2_next IS NOT NULL) AS v1,
-           (src.s3 = 'v2' AND v2.xp_v2_next3 IS NOT NULL) AS v3
+           (src.s3 = 'v2' AND v2.xp_v2_next3 IS NOT NULL) AS v3,
+           (src.s1 = 'last5_avg' AND l.avg5 IS NOT NULL) AS l1,
+           (src.s3 = 'last5_avg' AND l.avg5 IS NOT NULL) AS l3
     FROM next3 AS n
     CROSS JOIN src
-    LEFT JOIN v_latest_snapshot AS sn ON sn.player_id = n.player_id
+    LEFT JOIN last5 AS l ON l.player_id = n.player_id
     LEFT JOIN v_xp2_next AS v2 ON v2.player_id = n.player_id
 ),
 used AS (
     SELECT p.*,
-           CASE WHEN p.ep1 THEN 'fpl_ep' WHEN p.v1 THEN 'v2' ELSE 'model' END AS used1,
-           CASE WHEN p.ep3 THEN 'fpl_ep' WHEN p.v3 THEN 'v2' ELSE 'model' END AS used3
+           CASE WHEN p.l1 THEN 'last5_avg' WHEN p.v1 THEN 'v2' ELSE 'model' END AS used1,
+           CASE WHEN p.l3 THEN 'last5_avg' WHEN p.v3 THEN 'v2' ELSE 'model' END AS used3
     FROM pick AS p
 )
 SELECT p.player_id,
-       CASE p.used1 WHEN 'fpl_ep' THEN p.ep_next WHEN 'v2' THEN p.xp_v2_next
-            ELSE p.xp_model_next END AS xp_next,
-       CASE p.used3 WHEN 'fpl_ep' THEN p.ep_next * p.mult_next3 / p.mult_next
+       CASE p.used1 WHEN 'last5_avg' THEN p.avg5 * p.fixtures_next
+            WHEN 'v2' THEN p.xp_v2_next ELSE p.xp_model_next END AS xp_next,
+       CASE p.used3 WHEN 'last5_avg' THEN p.avg5 * p.fixtures_next3
             WHEN 'v2' THEN p.xp_v2_next3 ELSE p.xp_model_next3 END AS xp_next3,
        fm.start_prob,
        CASE WHEN p.used1 = p.used3 THEN p.used1 ELSE p.used1 || '/' || p.used3 END AS xp_source,

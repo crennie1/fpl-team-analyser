@@ -148,8 +148,8 @@ SLOT_POSITIONS = ["GK"] + ["DEF"] * 4 + ["MID"] * 4 + ["FWD"] * 2 + ["GK", "DEF"
 def _add_squad(conn, squad_id, first_pid, xp=4.0, team=1, captain_slot=9, flags=None):
     """Add 15 new players (ids first_pid..) and a squad of them; return the player ids.
 
-    xp is one number or a list of 15 (by slot); it becomes FPL's ep_next, which is
-    xp_next while meta.forecast_source is 'fpl_ep'. flags = {slot: (status, chance_next)}.
+    xp is one number or a list of 15 (by slot); it is each player's points in gws 1-5
+    (and, as a stand-in, ep_next), so xp_next is xp while meta.forecast_source is 'last5_avg'. flags = {slot: (status, chance_next)}.
     Each player has 90 minutes in gws 1-5, so start_prob is 1.
     """
     xps = xp if isinstance(xp, list) else [xp] * 15
@@ -167,7 +167,8 @@ def _add_squad(conn, squad_id, first_pid, xp=4.0, team=1, captain_slot=9, flags=
             "selected_by_percent": 1.0, "news": None if status == "a" else f"News {pid}"}])
         _insert(conn, "player_gw", [
             {"season": "2026-27", "gw": gw, "player_id": pid, "fixture_id": 1, "minutes": 90,
-             "total_points": 2, "was_home": 1, "opponent_team": 4, "fdr": 3, "ep_pre": None}
+             "total_points": xps[slot - 1], "was_home": 1, "opponent_team": 4, "fdr": 3,
+             "ep_pre": None}
             for gw in range(1, 6)])
         _insert(conn, "squad_pick", [{"squad_id": squad_id, "player_id": pid, "slot": slot,
                                       "is_starter": int(slot <= 11),
@@ -188,13 +189,14 @@ def db_with_squads(db_with_sample):
     and fixtures to gw 10. Team 1 has FDR 3, team 5 FDR 2 (easy), team 6 FDR 5 (hard).
     The test adds the 'user' squad with add_squad(conn, 'user', 9000, ...)."""
     conn = db_with_sample
-    _insert(conn, "meta", [{"key": "forecast_source", "value": "fpl_ep"}])
+    _insert(conn, "meta", [{"key": "forecast_source", "value": "last5_avg"}])
     _insert(conn, "team", [{"season": "2026-27", "team_id": t, "name": f"Team {t}",
                             "short_name": f"T{t}"} for t in (1, 5, 6)])
     fixtures = [{"season": "2026-27", "fixture_id": 100 + i, "gw": gw, "team_h": team, "team_a": 4,
                  "team_h_difficulty": fdr, "team_a_difficulty": 3, "finished": 0}
                 for i, (team, fdr, gw) in enumerate(
-                    [(t, f, g) for t, f in ((1, 3), (5, 2), (6, 5)) for g in range(6, 11)])]
+                    [(t, f, g) for t, f in ((1, 3), (5, 2), (6, 5)) for g in range(6, 11)
+                     if not (t == 1 and g <= 8)])]      # team 1's gws 6-8 are in db_with_sample
     _insert(conn, "fixture", fixtures)
     for k in range(1, 6):
         _add_squad(conn, f"ref:{k}", 1000 * k, xp=2.0 + k)

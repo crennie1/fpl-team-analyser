@@ -65,7 +65,7 @@ def env(db_with_squads, add_squad, monkeypatch):
         conn.execute("UPDATE player SET team_id = ? WHERE player_id = ?",
                      ((slot % 7) + 1, USER + slot))
         conn.execute("UPDATE player SET team_id = 8 WHERE player_id = ?", (POOL + slot,))
-    # swap targets need fixtures: with no fixture in next_gw the forecast falls back to the model (R20)
+    # swap targets need fixtures: xP is the player's average times his fixtures
     conn.executemany("INSERT INTO fixture (season, fixture_id, gw, team_h, team_a, team_h_difficulty, "
                      "team_a_difficulty, finished) VALUES ('2026-27', ?, ?, 8, 4, 3, 3, 0)",
                      [(200 + gw, gw) for gw in range(6, 11)])
@@ -214,7 +214,7 @@ def test_app_footer_source_and_repo_link(env, monkeypatch):
     monkeypatch.setenv("REPO_URL", "https://github.com/example/fpl")
     at = run()
     foot = " ".join(c.value for c in at.caption)
-    assert "official FPL API" in foot and "FPL's own predictions" in foot
+    assert "official FPL API" in foot and "recent average" in foot
     assert "(next week)" in foot and "(3 weeks)" in foot
     assert "https://github.com/example/fpl/blob/main/reports/backtest.md" in foot
 
@@ -223,12 +223,15 @@ def test_app_plan_from_session_moves(env):
     from fpl.plan import Move
     at = run()
     before = payload(at)["projected"]
-    at.session_state["plan"] = plan_state([Move(USER + 10, POOL + 10)])   # starting FWD, xp 4 -> 15
+    old_xp = next(c["xp"] for c in payload(at)["cards"] if c["id"] == USER + 10)
+    at.session_state["plan"] = plan_state([Move(USER + 10, POOL + 10)])   # a starting FWD swapped for a pool player
     at.run()
     assert not at.exception
     p = payload(at)
     assert p["plan"]["n_changes"] == 1 and "P9110" in [c["name"] for c in p["cards"]]
-    assert p["projected"] == pytest.approx(before + 11)
+    new_xp = next(c["xp"] for c in p["cards"] if c["id"] == POOL + 10)
+    assert new_xp != old_xp
+    assert p["projected"] == pytest.approx(before + new_xp - old_xp)
     assert p["base_grades"] != p["grades"] or p["plan"]["compare"]["grades"] == []
     new = next(c for c in p["cards"] if c["id"] == POOL + 10)
     assert new["was"] == "P9010" and new["original_id"] == USER + 10
@@ -359,10 +362,15 @@ def test_app_footer_names_v1_model_source(env):
     assert "scaled by fixtures" not in foot
 
 
-def test_app_footer_fpl_ep_three_weeks_is_scaled(env):
+def test_app_footer_old_fpl_ep_setting_is_shown_as_v2(env):
     foot = _footer(env, "fpl_ep", "fpl_ep")
-    assert ("FPL's own predictions (next week) · "
-            "FPL's own predictions scaled by fixtures (3 weeks)") in foot
+    assert "this site's v2 model (next week) · this site's v2 model (3 weeks)" in foot
+    assert "FPL's own" not in foot
+
+
+def test_app_footer_last5_avg_source(env):
+    foot = _footer(env, "last5_avg", "model")
+    assert "each player's recent average (next week) · this site's v1 model (3 weeks)" in foot
 
 
 def test_app_footer_v2_source(env):

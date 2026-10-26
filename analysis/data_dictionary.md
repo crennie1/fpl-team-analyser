@@ -45,9 +45,9 @@ Keys in use:
 | `next_gw` | The upcoming gameweek number. |
 | `next_deadline` | Deadline of the upcoming gameweek (UTC, from FPL). The refresh job saves the database to the repo when this is less than 48 hours away. |
 | `last_collected` | When the data was last refreshed (UTC time). The app warns if this is over 36 hours old. |
-| `forecast_source` | Older single setting: which forecast the app shows, `fpl_ep` (FPL's own number) or `model` (ours). Used only if the two keys below are missing. Currently `fpl_ep`. |
-| `forecast_source_1gw` | Source for the next-gameweek number: `fpl_ep`, `v2` or `model`. Chosen by the 1-gameweek backtest. Currently `fpl_ep`. |
-| `forecast_source_3gw` | Source for the next-3-gameweeks number, chosen by the 3-gameweek backtest. Currently `fpl_ep`. |
+| `forecast_source` | Older single setting, used only if the two keys below are missing. An old value of `fpl_ep` is read as `v2`: FPL's own number is never the site's xP. |
+| `forecast_source_1gw` | Source for the next-gameweek number: `v2`, `model` or `last5_avg`. Chosen by the 1-gameweek backtest. A stored `fpl_ep`, or no value, means `v2`. |
+| `forecast_source_3gw` | Source for the next-3-gameweeks number, chosen by the 3-gameweek backtest. Same values and rules. |
 
 ### `gw_deadline`
 When each gameweek's team-selection deadline falls. Refreshed from FPL on every collect.
@@ -219,15 +219,15 @@ Form windows count **back from the last loaded gameweek**, by gameweek number. A
 
 A blank gameweek gives 0. A double gameweek adds both fixtures.
 
-**What the app shows.** Each horizon has its own source (`forecast_source_1gw` for `xp_next`, `forecast_source_3gw` for `xp_next3`). When the source is `fpl_ep`:
+**What the app shows.** Each horizon has its own source (`forecast_source_1gw` for `xp_next`, `forecast_source_3gw` for `xp_next3`). FPL's own number is never a source. A stored `fpl_ep`, or no setting, is read as `v2`.
 
-- `xp_next` is FPL's own `ep_next`.
-- `xp_next3` is `ep_next` scaled by the fixtures: `ep_next x (sum of FDR multipliers over his fixtures in the next 3 gameweeks) / (sum of FDR multipliers over his fixtures in the next gameweek)`.
-- If he has no fixture next gameweek, or `ep_next` is empty, both numbers fall back to the model.
+- `v2`: forecast v2 (below).
+- `model`: the v1 model.
+- `last5_avg`: his average total points over his last 5 loaded gameweeks before the upcoming one (a double gameweek counts as one total), times his fixtures in the upcoming gameweek (`xp_next`) or in the next 3 gameweeks (`xp_next3`). A blank gameweek counts zero.
 
-When the source is `model`, the number comes from the v1 model. When it is `v2`, it comes from forecast v2 (below). `xp_source` says which was used.
+If the source has no number for a player (no v2 row, an empty v2 value, or no earlier gameweeks for `last5_avg`), that player uses the model. `xp_source` says which was actually used, such as `v2` or `v2/model` when the two horizons differ.
 
-The backtest scores each horizon in its own table: one gameweek ahead, and 3 gameweeks ahead (FPL's scaled number, v1 summed over 3, v2 summed over 3, and the last-5 average times the number of fixtures). Each table chooses its own source. v2 is chosen for a horizon only if its error is strictly lower than every other method's on the same rows.
+The backtest scores each horizon in its own table: one gameweek ahead, and 3 gameweeks ahead (v1 summed over 3, v2 summed over 3, and the last-5 average times the number of fixtures). Each table chooses its own source. v2 is chosen for a horizon only if its error is strictly lower than every other method's on the same rows.
 
 **Out-of-sample.** The FDR multipliers and `calib_att` are fitted on `fit_season` (2024-25) and scored on `backtest_season` (2025-26), so the backtest does not flatter them. See `reports/backtest.md`.
 
@@ -371,7 +371,7 @@ What the app shows: current season, upcoming gameweek. See "What the app shows" 
 | `xp_next` | Expected points next gameweek. |
 | `xp_next3` | Expected points over the next 3 gameweeks. |
 | `start_prob` | Chance he starts, 0 to 1. |
-| `xp_source` | `fpl_ep`, `v2` or `model`; `fpl_ep/v2` style when the two horizons differ. |
+| `xp_source` | `v2`, `model` or `last5_avg`; `v2/model` style when the two horizons differ. |
 | `defcon_chance` | v2 DefCon chance next gameweek. Always shown, whichever source is chosen. |
 | `cs_chance` | v2 clean-sheet chance next gameweek (summed over a double gameweek). Always shown. |
 | `cs_display` | Clean-sheet chance as shown in the app: `1 - product of (1 - p)` over a double gameweek. |

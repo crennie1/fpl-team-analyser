@@ -64,22 +64,99 @@ def test_fdr_multiplier_mean_is_about_1(db_with_sample):
     assert mid == pytest.approx({2: 1.5, 3: 1.0, 4: 0.5})
 
 
+def _use_model(conn):
+    conn.execute("INSERT INTO meta (key, value) VALUES ('forecast_source', 'model')")
+
+
 def test_xp_next_respects_forecast_source(db_with_sample):
     conn = db_with_sample
+    _use_model(conn)
     default = conn.execute("SELECT * FROM v_xp_next WHERE player_id=1").fetchone()
     assert default["xp_source"] == "model"
     assert default["xp_next"] == pytest.approx(4.0)           # start 1 x 4 pts/90 x mult 1
     # next 3 gws: team 1 plays once in each of gws 6, 7, 8
     assert default["xp_next3"] == pytest.approx(12.0)
 
+
+def test_meta_fpl_ep_now_means_v2(db_with_sample):
+    conn = db_with_sample
+    conn.execute("INSERT INTO meta (key, value) VALUES ('forecast_source_1gw', 'fpl_ep')")
+    conn.execute("INSERT INTO meta (key, value) VALUES ('forecast_source_3gw', 'fpl_ep')")
+    r = conn.execute("SELECT * FROM v_xp_next WHERE player_id=1").fetchone()
+    v2 = conn.execute("SELECT * FROM v_xp2_next WHERE player_id = 1").fetchone()
+    assert r["xp_source"] == "v2"
+    assert r["xp_next"] == pytest.approx(v2["xp_v2_next"])
+    assert r["xp_next3"] == pytest.approx(v2["xp_v2_next3"])
+
+
+def test_old_single_fpl_ep_meta_means_v2(db_with_sample):
+    conn = db_with_sample
     conn.execute("INSERT INTO meta (key, value) VALUES ('forecast_source', 'fpl_ep')")
-    ep = conn.execute("SELECT * FROM v_xp_next WHERE player_id=1").fetchone()
-    assert ep["xp_source"] == "fpl_ep"
-    assert ep["xp_next"] == pytest.approx(5.5)                # snapshot ep_next
-    assert ep["xp_next3"] == pytest.approx(16.5)              # 5.5 x 3 fixtures at mult 1 (R20)
-    # player with no snapshot falls back to the model
-    e = conn.execute("SELECT * FROM v_xp_next WHERE player_id=5").fetchone()
-    assert e["xp_source"] == "model"
+    assert conn.execute("SELECT xp_source FROM v_xp_next WHERE player_id=1").fetchone()[0] == "v2"
+
+
+def test_player_without_v2_falls_back_to_model(db_with_sample):
+    conn = db_with_sample
+    conn.execute("INSERT INTO meta (key, value) VALUES ('forecast_source', 'fpl_ep')")
+    # stand-in v2 view: player 1 has no v2 number, player 2 has one
+    conn.execute("DROP VIEW v_xp2_next")
+    conn.execute("CREATE VIEW v_xp2_next AS "
+                 "SELECT 1 AS player_id, NULL AS xp_v2_next, NULL AS xp_v2_next3, "
+                 "NULL AS defcon_chance_next, NULL AS cs_chance_next, NULL AS cs_display_next "
+                 "UNION ALL SELECT 2, 3.0, 9.0, 0.1, 0.2, 0.2")
+    r = _next(conn, 1)
+    assert r["xp_source"] == "model"
+    assert r["xp_next"] == pytest.approx(4.0)
+    assert _next(conn, 2)["xp_source"] == "v2"
+
+
+def test_xp_next_never_equals_ep_next_by_construction(db_with_sample):
+    conn = db_with_sample
+    conn.execute("INSERT INTO meta (key, value) VALUES ('forecast_source', 'fpl_ep')")
+    conn.execute("UPDATE player_snapshot SET ep_next = 99 WHERE player_id = 1")
+    r = _next(conn)
+    assert r["xp_next"] != pytest.approx(99)
+    assert r["xp_next3"] != pytest.approx(99 * 3)
+
+
+def _last5(conn, pid=1):
+    return [r[0] for r in conn.execute(
+        "SELECT SUM(total_points) FROM player_gw WHERE season='2026-27' AND player_id=? "
+        "AND gw < 6 GROUP BY gw ORDER BY gw DESC LIMIT 5", (pid,))]
+
+
+def test_last5_avg_source_is_average_times_fixtures(db_with_sample):
+    conn = db_with_sample
+    conn.execute("INSERT INTO meta (key, value) VALUES ('forecast_source_1gw', 'last5_avg')")
+    conn.execute("INSERT INTO meta (key, value) VALUES ('forecast_source_3gw', 'last5_avg')")
+    vals = _last5(conn)
+    avg = sum(vals) / len(vals)
+    r = _next(conn)
+    assert r["xp_source"] == "last5_avg"
+    assert r["xp_next"] == pytest.approx(avg)                 # one fixture in gw 6
+    assert r["xp_next3"] == pytest.approx(3 * avg)            # one fixture in each of 6, 7, 8
+
+
+def test_last5_avg_double_gw_and_blank(db_with_sample):
+    conn = db_with_sample
+    conn.execute("INSERT INTO meta (key, value) VALUES ('forecast_source_1gw', 'last5_avg')")
+    conn.execute("INSERT INTO meta (key, value) VALUES ('forecast_source_3gw', 'last5_avg')")
+    avg = sum(_last5(conn)) / len(_last5(conn))
+    conn.execute("INSERT INTO fixture (season, fixture_id, gw, team_h, team_a, team_h_difficulty, "
+                 "team_a_difficulty, finished) VALUES ('2026-27', 900, 6, 1, 4, 4, 3, 0)")
+    conn.execute("DELETE FROM fixture WHERE fixture_id=?", (_team1_fixture(conn, 8),))
+    r = _next(conn)
+    assert r["xp_next"] == pytest.approx(2 * avg)
+    assert r["xp_next3"] == pytest.approx(3 * avg)            # 2 + 1 + 0
+
+
+def test_last5_avg_without_history_falls_back_to_model(db_with_sample):
+    conn = db_with_sample
+    conn.execute("INSERT INTO meta (key, value) VALUES ('forecast_source_1gw', 'last5_avg')")
+    conn.execute("INSERT INTO meta (key, value) VALUES ('forecast_source_3gw', 'last5_avg')")
+    conn.execute("DELETE FROM player_gw WHERE season='2026-27' AND player_id=1")
+    r = _next(conn)
+    assert r["xp_source"] == "model"
 
 
 def test_in_progress_gameweek_not_counted_as_zero(db_with_sample):
@@ -107,14 +184,6 @@ def test_chance_next_scales_only_next_gw(db_with_sample):
     assert xp(db_with_sample, 3, 8) == pytest.approx(2.0)          # next_gw + 2: unscaled
 
 
-# --- R20: with forecast_source = 'fpl_ep', xp_next3 is ep_next scaled by fixtures ---
-# Player 1 (MID, team 1, ep_next 5.5) plays at home in gws 6, 7, 8. MID multipliers:
-# FDR 2 -> 1.5, FDR 3 -> 1.0, FDR 4 -> 0.5.
-
-def _use_ep(conn):
-    conn.execute("INSERT INTO meta (key, value) VALUES ('forecast_source', 'fpl_ep')")
-
-
 def _team1_fixture(conn, gw):
     return conn.execute("SELECT fixture_id FROM fixture WHERE season='2026-27' AND gw=? "
                         "AND team_h=1", (gw,)).fetchone()["fixture_id"]
@@ -124,47 +193,13 @@ def _next(conn, pid=1):
     return conn.execute("SELECT * FROM v_xp_next WHERE player_id=?", (pid,)).fetchone()
 
 
-def test_xp_next3_scales_ep_by_fixtures(db_with_sample):
-    conn = db_with_sample
-    _use_ep(conn)
-    conn.execute("UPDATE fixture SET team_h_difficulty=2 WHERE fixture_id=?", (_team1_fixture(conn, 7),))
-    conn.execute("DELETE FROM fixture WHERE fixture_id=?", (_team1_fixture(conn, 8),))   # blank gw 8
-    r = _next(conn)
-    assert r["xp_source"] == "fpl_ep"
-    assert r["xp_next"] == pytest.approx(5.5)
-    assert r["xp_next3"] == pytest.approx(5.5 * (1.0 + 1.5 + 0.0) / 1.0)
-
-
-def test_xp_next3_double_gw(db_with_sample):
-    conn = db_with_sample
-    _use_ep(conn)
-    conn.execute("INSERT INTO fixture (season, fixture_id, gw, team_h, team_a, team_h_difficulty, "
-                 "team_a_difficulty, finished) VALUES ('2026-27', 900, 6, 1, 4, 4, 3, 0)")
-    r = _next(conn)
-    # gw 6: 1.0 + 0.5 (two fixtures), gw 7: 1.0, gw 8: 1.0
-    assert r["xp_next3"] == pytest.approx(5.5 * 3.5 / 1.5)
-    assert r["xp_next"] == pytest.approx(5.5)
-
-
-def test_xp_next3_falls_back_without_next_fixture(db_with_sample):
-    conn = db_with_sample
-    model = _next(conn)["xp_next3"]
-    _use_ep(conn)
-    conn.execute("DELETE FROM fixture WHERE fixture_id=?", (_team1_fixture(conn, 6),))
-    r = _next(conn)
-    assert r["xp_source"] == "model"
-    assert r["xp_next"] == pytest.approx(0.0)
-    assert r["xp_next3"] == pytest.approx(8.0)       # model: gws 7 and 8 only, 4.0 each
-    assert model == pytest.approx(12.0)
-
-
 def test_xp_next3_model_source_unchanged(db_with_sample):
     conn = db_with_sample
+    _use_model(conn)
     conn.execute("UPDATE fixture SET team_h_difficulty=2 WHERE fixture_id=?", (_team1_fixture(conn, 7),))
     r = _next(conn)
     assert r["xp_source"] == "model"
     assert r["xp_next3"] == pytest.approx(4.0 * (1.0 + 1.5 + 1.0))
-    # and the view still equals the v_xp sum
     s = conn.execute("SELECT SUM(xp_model) AS s FROM v_xp WHERE season='2026-27' AND player_id=1 "
                      "AND as_of_gw=6 AND gw BETWEEN 6 AND 8").fetchone()["s"]
     assert r["xp_next3"] == pytest.approx(s)
@@ -175,11 +210,12 @@ def test_xp_next3_model_source_unchanged(db_with_sample):
 def test_xp_next_follows_each_horizon_source(db_with_sample):
     conn = db_with_sample
     conn.execute("INSERT INTO meta (key, value) VALUES ('forecast_source_1gw', 'model')")
-    conn.execute("INSERT INTO meta (key, value) VALUES ('forecast_source_3gw', 'fpl_ep')")
+    conn.execute("INSERT INTO meta (key, value) VALUES ('forecast_source_3gw', 'v2')")
     r = _next(conn)
-    assert r["xp_source"] == "model/fpl_ep"
+    v2 = conn.execute("SELECT * FROM v_xp2_next WHERE player_id = 1").fetchone()
+    assert r["xp_source"] == "model/v2"
     assert r["xp_next"] == pytest.approx(4.0)                 # model
-    assert r["xp_next3"] == pytest.approx(16.5)               # ep_next 5.5 x 3 fixtures (R20)
+    assert r["xp_next3"] == pytest.approx(v2["xp_v2_next3"])
 
 
 def test_v2_source_falls_back_to_model_without_v2_row(db_with_sample):
