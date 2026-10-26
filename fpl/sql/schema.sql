@@ -142,6 +142,31 @@ CREATE TABLE IF NOT EXISTS xp_next_cache (
     cs_display REAL
 );
 
+-- Breakdown snapshot: a copy of v_xp2_breakdown_next (the four parts of the next-gameweek
+-- v2 number) taken with xp_next_cache by db.refresh_xp_cache; the v2 views take seconds,
+-- so the player cards read this table. Keep the columns in step with db.BREAKDOWN_COLUMNS.
+CREATE TABLE IF NOT EXISTS xp2_breakdown_cache (
+    player_id INTEGER PRIMARY KEY,
+    n_fixtures INTEGER,
+    start_prob REAL,
+    minutes_last5 INTEGER,
+    app_pts REAL,
+    att_pts REAL,
+    cs_pts REAL,
+    defcon_pts REAL,
+    total REAL,
+    xg90 REAL,
+    xa90 REAL,
+    opp_xg_ratio REAL,
+    own_xgc_pm REAL,
+    opp_atk_ratio REAL,
+    cs_chance REAL,
+    defcon_chance REAL,
+    defcon_hits INTEGER,
+    defcon_apps INTEGER,
+    opp_short TEXT
+);
+
 -- Fitted forecast parameters (written by the backtest fit; a missing row means factor 1.0).
 -- e.g. name 'calib_att', position 'MID': scales the xG/xA part of forecast v2.
 CREATE TABLE IF NOT EXISTS model_param (

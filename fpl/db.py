@@ -5,6 +5,29 @@ from pathlib import Path
 
 SQL_DIR = Path(__file__).parent / "sql"
 VIEW_FILES = ("forecast.sql", "forecast_v2.sql", "squad.sql")
+# xp2_breakdown_cache's columns (schema.sql has the same table definition)
+BREAKDOWN_COLUMNS = (
+"""
+    player_id INTEGER PRIMARY KEY,
+    n_fixtures INTEGER,
+    start_prob REAL,
+    minutes_last5 INTEGER,
+    app_pts REAL,
+    att_pts REAL,
+    cs_pts REAL,
+    defcon_pts REAL,
+    total REAL,
+    xg90 REAL,
+    xa90 REAL,
+    opp_xg_ratio REAL,
+    own_xgc_pm REAL,
+    opp_atk_ratio REAL,
+    cs_chance REAL,
+    defcon_chance REAL,
+    defcon_hits INTEGER,
+    defcon_apps INTEGER,
+    opp_short TEXT
+""")
 
 
 def _exp(x):
@@ -80,7 +103,18 @@ def refresh_xp_cache(conn):
                  "cs_display REAL)")
     conn.execute("INSERT INTO xp_next_cache SELECT player_id, xp_next, xp_next3, start_prob, "
                  "xp_source, defcon_chance, cs_chance, cs_display FROM v_xp_next")
+    refresh_breakdown_cache(conn)
     conn.commit()
+
+
+def refresh_breakdown_cache(conn):
+    """Replace xp2_breakdown_cache with the current rows of v_xp2_breakdown_next (the
+    v2 views take seconds, so the cards read this copy). Rebuilt, so an older db upgrades."""
+    conn.execute("DROP TABLE IF EXISTS xp2_breakdown_cache")
+    conn.execute(f"CREATE TABLE xp2_breakdown_cache ({BREAKDOWN_COLUMNS})")
+    names = [line.split()[0] for line in BREAKDOWN_COLUMNS.strip().splitlines()]
+    conn.execute(f"INSERT INTO xp2_breakdown_cache ({', '.join(names)}) "
+                 f"SELECT {', '.join(names)} FROM v_xp2_breakdown_next")
 
 
 def memory_copy(path):

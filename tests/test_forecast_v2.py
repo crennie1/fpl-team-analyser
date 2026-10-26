@@ -358,3 +358,70 @@ def test_fallback_functions_match_sqlite(tmp_path):
     assert q("ln(1)") == 0.0 and q("ln(NULL)") is None
     assert q("ln(0)") is None and q("ln(-2)") is None
     assert q("1.0 - exp(ln(1.0 - 0.25) + ln(1.0 - 0.5))") == pytest.approx(1 - 0.75 * 0.5)
+
+
+# --- v_xp2_breakdown_next: the parts behind the next-gameweek v2 number ---------------
+
+PARTS = ("app_pts", "att_pts", "cs_pts", "defcon_pts")
+
+
+def breakdown_league(conn):
+    """mirror_league plus a DEF and a GK on each side, teams named T1..T3, calib 0.5 for MID."""
+    _insert(conn, "team", [{"season": CUR, "team_id": t, "name": f"Team {t}", "short_name": f"T{t}"}
+                           for t in (1, 2, 3)])
+    _insert(conn, "model_param", [{"name": "calib_att", "position": "MID", "value": 0.5}])
+    for pid, pos, team in ((20, "DEF", 1), (21, "DEF", 2), (30, "GK", 1), (31, "GK", 2)):
+        add_player(conn, pid, pos, team)
+        for gw in range(1, 7):
+            add_stat_row(conn, gw, pid, team, minutes=90 if gw > 1 else 45, xg=0.1, xa=0.05,
+                         hits=int(gw % 2 == 0))
+    mirror_league(conn)
+
+
+def test_breakdown_parts_add_up_to_xp_v2_next(v2db):
+    breakdown_league(v2db)
+    nxt = {r["player_id"]: r["xp_v2_next"] for r in v2db.execute("SELECT * FROM v_xp2_next")}
+    rows = {r["player_id"]: r for r in v2db.execute("SELECT * FROM v_xp2_breakdown_next")}
+    assert set(rows) == set(nxt) and len(rows) == 6
+    for pid, r in rows.items():
+        assert abs(sum(r[p] for p in PARTS) - r["total"]) < 1e-9
+        assert r["total"] == nxt[pid]
+    r = rows[1]                                          # MID, 450 min last 5, calib 0.5
+    assert (r["n_fixtures"], r["opp_short"], r["minutes_last5"]) == (1, "T2", 450)
+    assert r["start_prob"] == pytest.approx(1.0) and r["app_pts"] == pytest.approx(2.0)
+    assert r["att_pts"] == pytest.approx(0.5 * (0.3 * 5 + 0.15 * 3))
+    assert r["cs_pts"] == pytest.approx(math.exp(-r["own_xgc_pm"] * r["opp_atk_ratio"]))
+    assert r["defcon_pts"] == pytest.approx(2 * r["defcon_chance"])
+    assert (r["xg90"], r["xa90"]) == pytest.approx((0.3, 0.15))
+    assert (r["defcon_hits"], r["defcon_apps"]) == (2, 6)
+    assert r["opp_xg_ratio"] == pytest.approx(1.0)
+    assert r["cs_chance"] == pytest.approx(math.exp(-r["own_xgc_pm"] * r["opp_atk_ratio"]))
+    gk = rows[30]
+    assert gk["defcon_pts"] == 0 and gk["defcon_hits"] is None and gk["defcon_apps"] is None
+    assert gk["cs_pts"] == pytest.approx(4 * gk["start_prob"] * gk["cs_chance"])
+
+
+def test_breakdown_double_gameweek_sums_fixtures(v2db):
+    breakdown_league(v2db)
+    v2db.execute("UPDATE meta SET value = '8' WHERE key = 'next_gw'")   # team 1 has a double
+    v2db.commit()
+    r = one(v2db, "SELECT * FROM v_xp2_breakdown_next WHERE player_id=1")
+    fx = [x["xp_v2"] for x in v2db.execute(
+        "SELECT xp_v2 FROM v_xp2_fixture WHERE season=? AND player_id=1 AND as_of_gw=8 AND gw=8 "
+        "ORDER BY fixture_id", (CUR,))]
+    assert r["n_fixtures"] == 2 and len(fx) == 2
+    assert r["total"] == pytest.approx(sum(fx))
+    assert r["total"] == one(v2db, "SELECT xp_v2_next FROM v_xp2_next WHERE player_id=1")["xp_v2_next"]
+    assert abs(sum(r[p] for p in PARTS) - r["total"]) < 1e-9
+    assert r["app_pts"] == pytest.approx(2 * 2 * r["start_prob"])
+    assert r["opp_short"] == "T2, T3"
+
+
+def test_breakdown_blank_gameweek_zero(v2db):
+    breakdown_league(v2db)
+    v2db.execute("UPDATE meta SET value = '9' WHERE key = 'next_gw'")   # team 1 blanks
+    v2db.commit()
+    r = one(v2db, "SELECT * FROM v_xp2_breakdown_next WHERE player_id=1")
+    assert r["n_fixtures"] == 0 and r["total"] == 0
+    assert all(r[p] == 0 for p in PARTS)
+    assert r["opp_short"] is None and r["minutes_last5"] == 450

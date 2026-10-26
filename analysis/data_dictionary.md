@@ -198,10 +198,13 @@ A saved copy of the view `v_xp_next`, taken after each data load. It is a table 
 | `xp_next` | Expected points next gameweek. |
 | `xp_next3` | Expected points over the next 3 gameweeks. |
 | `start_prob` | Chance he starts, 0 to 1. |
-| `xp_source` | `fpl_ep`, `v2` or `model`: where the numbers came from. If the two horizons differ it reads like `fpl_ep/v2` (next gameweek source, then 3-gameweek source). |
+| `xp_source` | `v2`, `model` or `last5_avg`: where the numbers came from. If the two horizons differ it reads like `v2/model` (next gameweek source, then 3-gameweek source). |
 | `defcon_chance` | Chance he reaches his DefCon threshold next gameweek (0 to 1). Always filled from v2, whichever source is chosen. 0 for goalkeepers. |
 | `cs_chance` | Chance his team keeps a clean sheet next gameweek. Always filled from v2. In a double gameweek it is the sum over both fixtures (what expected points use). |
 | `cs_display` | The clean-sheet chance the app shows for goalkeepers: in a double gameweek, the chance of at least one clean sheet, `1 - (1 - p1) x (1 - p2)`, so it never passes 100%. |
+
+### `xp2_breakdown_cache`
+A saved copy of the view `v_xp2_breakdown_next`, taken with `xp_next_cache` by `db.refresh_xp_cache` (so its `total` matches the cached v2 number exactly). It is a table because the v2 views take a few seconds to run; the player cards read it once per rerun for the whole squad. The columns are the same as `v_xp2_breakdown_next`.
 
 ## The forecast (v1): how expected points are worked out
 
@@ -268,6 +271,8 @@ v_as_of_grid, v_latest_snapshot, v_fdr_multiplier
 v_pf_stat -> v_team_gw, v_team_gw_pos -> v_team_conceded, v_team_xg -> v_opp_weakness
    -> v_player_threat -> v_xp2_slot -> v_xp2_fixture -> v_cs_chance, v_defcon_chance, v_xp2 -> v_xp2_next
                                                                        (feeds v_xp_next)
+                                          v_xp2_fixture -> v_xp2_breakdown_next (copied into xp2_breakdown_cache)
+v_last5_next (feeds v_xp_next's last5_avg source and the cards' last-5 comparison)
 v_squad_pick_xp + v_squad_fixtures -> v_squad_metrics -> v_squad_area_value -> v_squad_grades
 ```
 
@@ -362,6 +367,14 @@ Model expected points per player per target gameweek. A blank gives 0 and a doub
 | `as_of_gw` | Forecast-from gameweek. |
 | `xp_model` | Model expected points. |
 
+### `v_last5_next`
+Each current-season player's mean total points over his last 5 loaded gameweeks before `next_gw`. A double gameweek counts as one total; gameweeks with no total are skipped. It is the `last5_avg` source of `v_xp_next` (times his fixtures) and the cards' "last-5 average".
+
+| Column | Meaning |
+|---|---|
+| `player_id` | Player. |
+| `avg5` | Mean of up to 5 gameweek totals. No row without any earlier gameweek. |
+
 ### `v_xp_next`
 What the app shows: current season, upcoming gameweek. See "What the app shows" above. This is the view that is copied into `xp_next_cache`.
 
@@ -428,10 +441,11 @@ Each player's underlying numbers over the last 6 loaded gameweeks.
 | `season`, `player_id`, `as_of_gw` | Player and forecast-from gameweek. |
 | `xg90`, `xa90` | xG and xA per 90 minutes. Position average if he has under 180 minutes. |
 | `defcon_rate` | DefCon hit rate per appearance, pulled toward the position average. Empty for goalkeepers, players with no appearances, or no DefCon data. |
+| `defcon_hits`, `defcon_apps` | The raw DefCon hits and appearances behind `defcon_rate`. Empty for goalkeepers; `defcon_hits` is also empty with no DefCon data. |
 | `team_xgc_pm` | xG his team concedes per match. |
 
 #### `v_xp2_slot`
-One row per player, forecast-from gameweek, target gameweek and fixture. A blank gameweek is one row with `fixture_id` empty. Columns: `season`, `player_id`, `as_of_gw`, `gw`, `fixture_id`, `team_id`, `opp_id`, `start_prob`.
+One row per player, forecast-from gameweek, target gameweek and fixture. A blank gameweek is one row with `fixture_id` empty. Columns: `season`, `player_id`, `as_of_gw`, `gw`, `fixture_id`, `team_id`, `opp_id`, `start_prob`, `minutes_last5` (the minutes `start_prob` comes from, from `v_player_form`).
 
 #### `v_xp2_fixture`
 Every component and the expected points, per fixture.
@@ -444,6 +458,11 @@ Every component and the expected points, per fixture.
 | `defcon_chance` | Chance he reaches the DefCon threshold. |
 | `xp_v2` | Forecast v2 expected points for that fixture. |
 | `att_pred` | Expected attacking points with `calib_att` at 1.0. Used only by the fitting code. |
+| `app_pts`, `att_pts`, `cs_pts`, `defcon_pts` | The four terms of `xp_v2`, each already times `start_prob`: 2 for playing, attacking points (calibrated, times the opponent's xG ratio), clean-sheet points (`CS_PTS x cs_chance`), DefCon points (`2 x defcon_chance`). They add up to `xp_v2`. 0 for a blank. |
+| `minutes_last5`, `opp_id` | His minutes over the last 5 loaded gameweeks; the opponent. |
+| `xg90`, `xa90`, `defcon_hits`, `defcon_apps` | From `v_player_threat`. |
+| `opp_xg_ratio` | `v_opp_weakness.xg_ratio` for the opponent and his position. |
+| `own_xgc_pm`, `opp_atk_ratio` | His team's xG conceded per match and the opponent's attack ratio (`v_team_xg`), the inputs to `cs_chance`. |
 
 #### `v_cs_chance`, `v_defcon_chance`, `v_xp2`
 Per player per gameweek. `v_cs_chance` sums the clean-sheet chance over his fixtures. `v_defcon_chance` is `1 - (product of (1 - p))` over his fixtures. `v_xp2` sums `xp_v2`. A blank gameweek gives 0.
@@ -458,6 +477,19 @@ What the app reads from v2: current season, upcoming gameweek.
 | `defcon_chance_next` | DefCon chance next gameweek. |
 | `cs_chance_next` | Clean-sheet chance next gameweek (sum over a double gameweek's fixtures). |
 | `cs_display_next` | Chance of at least one clean sheet next gameweek: `1 - product of (1 - p)`. |
+
+#### `v_xp2_breakdown_next`
+The upcoming gameweek's v2 number split into the four parts the app explains: one row per current-season player, for `next_gw` only (filters are scalar subqueries, as in `v_xp2_next`, so only that gameweek is forecast; it still takes a few seconds, hence `xp2_breakdown_cache`).
+
+| Column | Meaning |
+|---|---|
+| `player_id` | Player. |
+| `n_fixtures` | Fixtures next gameweek: 0 blank, 1, or 2 for a double (the "2 games" note). |
+| `start_prob`, `minutes_last5` | Chance he plays and the minutes it comes from. |
+| `app_pts`, `att_pts`, `cs_pts`, `defcon_pts` | `v_xp2_fixture`'s parts summed over his fixtures. They add up to `total` (to float rounding). All 0 in a blank. |
+| `total` | Sum of `xp_v2` over his fixtures: equal to `v_xp2_next.xp_v2_next`. |
+| `xg90`, `xa90`, `opp_xg_ratio`, `own_xgc_pm`, `opp_atk_ratio`, `cs_chance`, `defcon_chance`, `defcon_hits`, `defcon_apps` | The inputs, from his first fixture (lowest `fixture_id`). Empty in a blank. |
+| `opp_short` | Opponents' short names joined with ", " in fixture order. Empty in a blank. |
 
 ### `v_squad_pick_xp`
 Each squad pick with the player's position, expected points and risk flag.
@@ -519,3 +551,12 @@ Each non-reference squad compared with the reference squads of the current seaso
 | `value` | The squad's number for that area. |
 | `pct` | Percentile, 0 to 100. |
 | `grade` | Letter from the percentile: A is 80 or more, B is 60 to under 80, C is 40 to under 60, D is 20 to under 40, E is under 20. |
+
+## Player card fields (`fpl/cards.py`)
+`player_cards` returns one dict per analysed player. Fields used by the "why this xP" panel:
+
+| Field | Meaning |
+|---|---|
+| `breakdown` | Empty (`None`) unless his `xp_next_cache.xp_source` starts with `v2` (the next-gameweek number is v2's). Otherwise his `xp2_breakdown_cache` row (columns as in `v_xp2_breakdown_next`) plus `source: "v2"`. All cards' rows come from one query. |
+| `compare.fpl_form` | FPL's `ep_next` from his latest snapshot, only when that snapshot is for `next_gw`; otherwise empty. Never used as the site's xP. |
+| `compare.last5` | The site's `last5_avg` number for next gameweek: `v_last5_next.avg5` times his fixtures in `next_gw` (`v_target_fixture`). Empty with no earlier gameweek. |

@@ -98,7 +98,15 @@ def player_cards(conn, analysis: Analysis, suggestions: list, weakness=None,
     `weakness` is weakness_table(conn) when the caller already has it (the app caches it
     per database file); otherwise it is computed here. `extras` maps player id to extra card
     keys (selling_price, options, was, original_id) merged into that player's card. Nothing below reads the heavy v2
-    views per card, so one rerun stays fast.
+    views at all, so one rerun stays fast: the v2 breakdowns come from one cache query for all cards.
+
+    card["breakdown"]: the player's v_xp2_breakdown_next row (read from its snapshot,
+    xp2_breakdown_cache) as a dict plus "source": "v2", only
+    when his xp_source starts with 'v2' (the next-gameweek number is v2's, so the parts add up
+    to it); otherwise None.
+    card["compare"]: {"fpl_form": FPL's ep_next from his latest snapshot, only if that snapshot
+    is for next_gw, else None; "last5": the site's last5_avg number for next_gw (mean of his
+    last 5 gameweek totals, v_last5_next, x his fixtures in next_gw), None without history}.
     """
     season, next_gw = _meta(conn, "current_season"), int(_meta(conn, "next_gw"))
     ranks = _ranks_from(weakness if weakness is not None else weakness_table(conn))
@@ -112,14 +120,49 @@ def player_cards(conn, analysis: Analysis, suggestions: list, weakness=None,
         if card is not None:   # None: not in the player table yet (Analysis.missing)
             card.update((extras or {}).get(pv.player_id, {}))
             cards.append(card)
+    _add_breakdowns(conn, cards)
+    _add_last5(conn, cards, season, next_gw)
     return cards
+
+
+def _in_list(ids):
+    return "(" + ",".join("?" * len(ids)) + ")"
+
+
+def _add_breakdowns(conn, cards):
+    """Fill card["breakdown"] for v2-sourced cards from one query on xp2_breakdown_cache
+    (the snapshot of v_xp2_breakdown_next taken with xp_next_cache, so the parts match it)."""
+    ids = [c["id"] for c in cards if (c.pop("_xp_source") or "").startswith("v2")]
+    rows = {}
+    if ids:
+        rows = {r["player_id"]: dict(r) for r in conn.execute(
+            f"SELECT * FROM xp2_breakdown_cache WHERE player_id IN {_in_list(ids)}", ids)}
+    for c in cards:
+        row = rows.get(c["id"])
+        c["breakdown"] = None if row is None else {**row, "source": "v2"}
+
+
+def _add_last5(conn, cards, season, next_gw):
+    """Fill card["compare"]["last5"]: v_last5_next's mean x fixtures in next_gw (the
+    site's last5_avg rule; v_target_fixture is the fixture list v_xp_next counts)."""
+    ids = [c["id"] for c in cards]
+    rows = {}
+    if ids:
+        rows = {r["player_id"]: r["last5"] for r in conn.execute(
+            "SELECT l.player_id, l.avg5 * (SELECT COUNT(*) FROM v_target_fixture AS t "
+            "       WHERE t.season = ? AND t.player_id = l.player_id AND t.gw = ?) AS last5 "
+            f"FROM v_last5_next AS l WHERE l.player_id IN {_in_list(ids)}",
+            [season, next_gw, *ids])}
+    for c in cards:
+        c["compare"]["last5"] = rows.get(c["id"])
 
 
 def _card(conn, pv, season, next_gw, last_gw, ranks, sug):
     pid = pv.player_id
     p = conn.execute(
         "SELECT p.first_name, p.second_name, p.web_name, p.team_id, t.short_name AS club, "
-        "       s.now_cost, s.selected_by_percent, x.xp_next3, x.defcon_chance, x.cs_display "
+        "       s.now_cost, s.selected_by_percent, s.gw AS snap_gw, s.ep_next, "
+        "       x.xp_next3, x.defcon_chance, x.cs_display, x.xp_source "
         "FROM player AS p JOIN team AS t ON t.season = p.season AND t.team_id = p.team_id "
         "LEFT JOIN v_latest_snapshot AS s ON s.player_id = p.player_id "
         "LEFT JOIN xp_next_cache AS x ON x.player_id = p.player_id "
@@ -197,6 +240,9 @@ def _card(conn, pv, season, next_gw, last_gw, ranks, sug):
         "weakness": weakness,
         "set_pieces": _set_pieces(sp),
         "sell": sell,
+        "compare": {"fpl_form": p["ep_next"] if p["snap_gw"] == next_gw else None,
+                    "last5": None},          # last5 and breakdown: filled in player_cards
+        "_xp_source": p["xp_source"],
     }
 
 

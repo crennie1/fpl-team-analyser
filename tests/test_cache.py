@@ -30,3 +30,22 @@ def test_cache_table_upgrades_in_place(v2db):
     refresh_xp_cache(v2db)
     cols = {r[1] for r in v2db.execute("PRAGMA table_info(xp_next_cache)")}
     assert {"defcon_chance", "cs_chance"} <= cols
+
+
+def test_breakdown_cache_copies_view(v2db):
+    """refresh_xp_cache also snapshots v_xp2_breakdown_next; its total is the cached v2 number."""
+    from fpl.db import refresh_xp_cache
+    add_player(v2db, 1, "DEF", 1)
+    add_player(v2db, 2, "MID", 2)
+    for gw in range(1, 7):
+        add_stat_row(v2db, gw, 1, 1, hits=1)
+        add_stat_row(v2db, gw, 2, 2, xg=0.5)
+    refresh(v2db)
+    v2db.execute("DROP TABLE xp2_breakdown_cache")             # an older db without the table
+    refresh_xp_cache(v2db)
+    view = [tuple(r) for r in v2db.execute("SELECT * FROM v_xp2_breakdown_next ORDER BY player_id")]
+    cache = [tuple(r) for r in v2db.execute("SELECT * FROM xp2_breakdown_cache ORDER BY player_id")]
+    assert cache == view and len(cache) == 2
+    for r in v2db.execute("SELECT b.total, x.xp_next FROM xp2_breakdown_cache AS b "
+                          "JOIN xp_next_cache AS x USING (player_id)"):
+        assert r["total"] == r["xp_next"]                       # source is v2 (no setting)

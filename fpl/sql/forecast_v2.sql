@@ -67,11 +67,13 @@
 --   v_xp2_fixture     every component and the expected points, per fixture
 --   v_cs_chance, v_defcon_chance, v_xp2   per player per gameweek
 --   v_xp2_next        what the app shows (current season, upcoming gameweek)
+--   v_xp2_breakdown_next  v_xp2_next's upcoming-gameweek number split into its four parts
 --
 -- SQL functions `exp` and `ln` come from SQLite's math functions (3.35+) or, where the
 -- build lacks them, fpl.db.register_functions registers Python's math.exp / math.log (V1).
 -- =====================================================================
 
+DROP VIEW IF EXISTS v_xp2_breakdown_next;
 DROP VIEW IF EXISTS v_xp2_next;
 DROP VIEW IF EXISTS v_xp2;
 DROP VIEW IF EXISTS v_defcon_chance;
@@ -231,6 +233,7 @@ WINDOW lg AS (PARTITION BY season, as_of_gw, position);   -- the league, for tha
 -- Each player's underlying numbers, last 6 loaded gameweeks before as_of_gw.
 --   xg90, xa90   per 90 minutes; position average if under 180 minutes in the window
 --   defcon_rate  DefCon hit rate shrunk toward the position average (V3); NULL for a GK, with no appearances, or no data
+--   defcon_hits, defcon_apps  the raw hits and appearances behind defcon_rate (NULL for a GK)
 --   team_xgc_pm  xG his (current) team concedes per match
 CREATE VIEW v_player_threat AS
 WITH window_totals AS (
@@ -261,6 +264,8 @@ SELECT w.season, w.player_id, w.as_of_gw,
        CASE WHEN w.minutes >= 180 THEN 90.0 * w.xa / w.minutes ELSE w.pos_xa90 END AS xa90,
        CASE WHEN w.position = 'GK' OR w.apps = 0 THEN NULL
             ELSE (w.hits + 3 * w.pos_defcon_rate) / (w.apps + 3) END AS defcon_rate,
+       CASE WHEN w.position = 'GK' THEN NULL ELSE w.hits END AS defcon_hits,
+       CASE WHEN w.position = 'GK' THEN NULL ELSE w.apps END AS defcon_apps,
        tx.xgc_pm AS team_xgc_pm
 FROM with_position_avg AS w
 LEFT JOIN v_team_xg AS tx
@@ -269,7 +274,8 @@ LEFT JOIN v_team_xg AS tx
 
 -- One row per player, as_of_gw, target gameweek (as_of_gw .. as_of_gw + 2) and fixture;
 -- a blank gameweek is one row with fixture_id NULL. start_prob is his chance of playing
--- in that gameweek (chance_next applies to the upcoming gameweek only, R13, as in v1).
+-- in that gameweek (chance_next applies to the upcoming gameweek only, R13, as in v1);
+-- minutes_last5 is the minutes count it comes from (for the breakdown's reason line).
 CREATE VIEW v_xp2_slot AS
 WITH slots AS (
     SELECT fm.season, fm.player_id, fm.as_of_gw, tg.as_of_gw AS gw, tf.fixture_id,
@@ -280,7 +286,8 @@ WITH slots AS (
                 THEN CASE WHEN g.was_home = 1 THEN f.team_h ELSE f.team_a END
                 ELSE pl.team_id END AS team_id,
            fm.start_prob_base * CASE WHEN tg.as_of_gw = fm.as_of_gw
-                                     THEN fm.chance_factor ELSE 1.0 END AS start_prob
+                                     THEN fm.chance_factor ELSE 1.0 END AS start_prob,
+           fm.minutes_last5
     FROM v_player_form AS fm                -- CROSS JOIN: keep this join order (see header note)
     CROSS JOIN player AS pl ON pl.season = fm.season AND pl.player_id = fm.player_id
     CROSS JOIN v_as_of_grid AS tg
@@ -294,7 +301,7 @@ WITH slots AS (
 )
 SELECT season, player_id, as_of_gw, gw, fixture_id, team_id,
        CASE WHEN team_id = team_h THEN team_a ELSE team_h END AS opp_id,   -- the other side
-       start_prob
+       start_prob, minutes_last5
 FROM slots;
 
 
@@ -302,10 +309,16 @@ FROM slots;
 -- Written as two halves, played slots and blank slots, so that every join to the heavier
 -- views is an inner join: only then can SQLite push a season / as_of_gw filter all the way
 -- down and forecast one gameweek instead of every gameweek of every season.
+-- app_pts, att_pts, cs_pts and defcon_pts are xp_v2's four terms, each times start_prob
+-- (their sum is xp_v2 up to float rounding); the inputs behind them (xg90 .. defcon_apps,
+-- minutes_last5, opp_id) are passed through for the app's breakdown (v_xp2_breakdown_next).
 CREATE VIEW v_xp2_fixture AS
 WITH components AS (
     SELECT s.season, s.player_id, s.as_of_gw, s.gw, s.fixture_id, pl.position,
-           s.start_prob,
+           s.start_prob, s.minutes_last5, s.opp_id,
+           th.xg90, th.xa90, th.defcon_hits, th.defcon_apps,
+           ow.xg_ratio AS opp_xg_ratio, own.xgc_pm AS own_xgc_pm, opp.atk_ratio AS opp_atk_ratio,
+           CASE pl.position WHEN 'MID' THEN 1 WHEN 'FWD' THEN 0 ELSE 4 END AS cs_pts_per,
            exp(-(own.xgc_pm * COALESCE(opp.atk_ratio, 1.0))) AS cs_chance,
            CASE WHEN th.defcon_rate IS NULL THEN 0.0
                 ELSE MIN(0.95, th.defcon_rate * ow.defcon_ratio) END AS defcon_chance,
@@ -313,7 +326,7 @@ WITH components AS (
            COALESCE(mp.value, 1.0)
              * (COALESCE(th.xg90, 0) * CASE pl.position WHEN 'GK' THEN 10 WHEN 'MID' THEN 5 WHEN 'FWD' THEN 4 ELSE 6 END
                 + COALESCE(th.xa90, 0) * 3)
-             * ow.xg_ratio AS att_pts,
+             * ow.xg_ratio AS att_term,
            -- the same attacking term with calib 1.0: what fit.py calibrates against
            (COALESCE(th.xg90, 0) * CASE pl.position WHEN 'GK' THEN 10 WHEN 'MID' THEN 5 WHEN 'FWD' THEN 4 ELSE 6 END
                 + COALESCE(th.xa90, 0) * 3)
@@ -334,15 +347,22 @@ WITH components AS (
 )
 SELECT season, player_id, as_of_gw, gw, fixture_id, position, start_prob,
        cs_chance, defcon_chance,
-       start_prob * ( 2.0 + att_pts
-                    + CASE position WHEN 'MID' THEN 1 WHEN 'FWD' THEN 0 ELSE 4 END
-                      * COALESCE(cs_chance, 0)
+       start_prob * ( 2.0 + att_term
+                    + cs_pts_per * COALESCE(cs_chance, 0)
                     + 2.0 * defcon_chance ) AS xp_v2,
-       start_prob * att_raw AS att_pred      -- expected attacking points at calib 1.0 (for fit.py)
+       start_prob * att_raw AS att_pred,     -- expected attacking points at calib 1.0 (for fit.py)
+       start_prob * 2.0 AS app_pts,
+       start_prob * att_term AS att_pts,
+       start_prob * cs_pts_per * COALESCE(cs_chance, 0) AS cs_pts,
+       start_prob * 2.0 * defcon_chance AS defcon_pts,
+       minutes_last5, opp_id, xg90, xa90, opp_xg_ratio, own_xgc_pm, opp_atk_ratio,
+       defcon_hits, defcon_apps
 FROM components
 UNION ALL                -- blank gameweeks score nothing
 SELECT s.season, s.player_id, s.as_of_gw, s.gw, NULL, pl.position, s.start_prob,
-       0.0, 0.0, 0.0, 0.0
+       0.0, 0.0, 0.0, 0.0,
+       0.0, 0.0, 0.0, 0.0,
+       s.minutes_last5, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
 FROM v_xp2_slot AS s
 JOIN player AS pl ON pl.season = s.season AND pl.player_id = s.player_id
 WHERE s.fixture_id IS NULL;
@@ -393,4 +413,48 @@ FROM (SELECT *, (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'next_gw') 
         AND as_of_gw = (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'next_gw')
         AND gw BETWEEN (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'next_gw')
                    AND (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'next_gw') + 2)
+GROUP BY player_id;
+
+
+
+-- The upcoming gameweek's v2 number split into the four parts the app explains, one row
+-- per player (current season, as_of_gw = gw = next_gw; filters are scalar subqueries, as
+-- in v_xp2_next, so SQLite forecasts that one gameweek only).
+--   app_pts, att_pts, cs_pts, defcon_pts  v_xp2_fixture's parts (each x start_prob),
+--                summed over the gameweek's fixtures; they add up to total (float rounding)
+--   total        SUM(xp_v2), the same sum as v_xp2_next.xp_v2_next
+--   n_fixtures   0 blank, 1, 2 double (the app's "2 games" note)
+--   xg90 .. defcon_apps  the inputs, from his first fixture (by fixture_id); opponent
+--                ratios and chances can differ in a double gameweek's second fixture
+--   opp_short    opponents' short names, comma-joined in fixture_id order; NULL when blank
+CREATE VIEW v_xp2_breakdown_next AS
+WITH fx AS (
+    SELECT x.*, t.short_name AS opp_name,
+           ROW_NUMBER() OVER (PARTITION BY x.player_id ORDER BY x.fixture_id) AS rn
+    FROM v_xp2_fixture AS x
+    LEFT JOIN team AS t ON t.season = x.season AND t.team_id = x.opp_id
+    WHERE x.season = (SELECT value FROM meta WHERE key = 'current_season')
+      AND x.as_of_gw = (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'next_gw')
+      AND x.gw = (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'next_gw')
+)
+SELECT player_id,
+       COUNT(fixture_id) AS n_fixtures,
+       MAX(start_prob) AS start_prob,
+       MAX(minutes_last5) AS minutes_last5,
+       SUM(app_pts) AS app_pts,
+       SUM(att_pts) AS att_pts,
+       SUM(cs_pts) AS cs_pts,
+       SUM(defcon_pts) AS defcon_pts,
+       SUM(xp_v2) AS total,
+       MAX(CASE WHEN rn = 1 THEN xg90 END) AS xg90,
+       MAX(CASE WHEN rn = 1 THEN xa90 END) AS xa90,
+       MAX(CASE WHEN rn = 1 THEN opp_xg_ratio END) AS opp_xg_ratio,
+       MAX(CASE WHEN rn = 1 THEN own_xgc_pm END) AS own_xgc_pm,
+       MAX(CASE WHEN rn = 1 THEN opp_atk_ratio END) AS opp_atk_ratio,
+       MAX(CASE WHEN rn = 1 AND fixture_id IS NOT NULL THEN cs_chance END) AS cs_chance,
+       MAX(CASE WHEN rn = 1 AND fixture_id IS NOT NULL THEN defcon_chance END) AS defcon_chance,
+       MAX(CASE WHEN rn = 1 THEN defcon_hits END) AS defcon_hits,
+       MAX(CASE WHEN rn = 1 THEN defcon_apps END) AS defcon_apps,
+       group_concat(opp_name, ', ') AS opp_short     -- fx rows arrive in rn order
+FROM fx
 GROUP BY player_id;

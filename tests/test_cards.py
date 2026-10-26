@@ -2,6 +2,7 @@
 import pytest
 
 from fpl.analyse import Analysis, PlayerView
+from fpl.db import refresh_breakdown_cache
 from fpl.cards import ordinal, player_cards, replacement_pool, weakness_table
 from fpl.suggest import Suggestion
 from tests.conftest import _insert
@@ -10,16 +11,16 @@ from tests.test_forecast_v2 import v2db  # noqa: F401  (fixture)
 
 
 def add(conn, pid, pos, team, first=None, second=None, web="Web", defcon=None, cs=None,
-        xp=4.0, xp3=10.0, cost=65, owned=12.5, cs_display=None):
+        xp=4.0, xp3=10.0, cost=65, owned=12.5, cs_display=None, source="v2", snap_gw=7):
     _insert(conn, "player", [{"season": CUR, "player_id": pid, "web_name": web, "team_id": team,
                               "position": pos, "first_name": first, "second_name": second}])
     _insert(conn, "player_snapshot", [{
-        "season": CUR, "gw": 7, "player_id": pid, "collected_at": "x", "status": "a",
+        "season": CUR, "gw": snap_gw, "player_id": pid, "collected_at": "x", "status": "a",
         "chance_next": None, "ep_next": 4.0, "now_cost": cost, "selected_by_percent": owned,
         "news": None}])
     conn.execute("INSERT OR REPLACE INTO xp_next_cache (player_id, xp_next, xp_next3, start_prob, "
-                 "xp_source, defcon_chance, cs_chance, cs_display) VALUES (?, ?, ?, 1.0, 'v2', ?, ?, ?)",
-                 (pid, xp, xp3, defcon, cs, cs if cs_display is None else cs_display))
+                 "xp_source, defcon_chance, cs_chance, cs_display) VALUES (?, ?, ?, 1.0, ?, ?, ?, ?)",
+                 (pid, xp, xp3, source, defcon, cs, cs if cs_display is None else cs_display))
 
 
 def setup_league(conn):
@@ -46,7 +47,8 @@ def test_cards_keys_and_initials(v2db):
     assert [c["initials"] for c in cards] == ["EH", "SA", "KD"]
     assert set(cards[0]) == {"id", "initials", "name", "full_name", "pos", "club", "price", "owned",
                              "xp", "xp3", "colour", "flag", "starter", "captain", "bar_label",
-                             "bar_pct", "fixtures", "last6", "weakness", "set_pieces", "sell"}
+                             "bar_pct", "fixtures", "last6", "weakness", "set_pieces", "sell",
+                             "breakdown", "compare"}
     c = cards[0]
     assert (c["full_name"], c["price"], c["owned"], c["club"]) == ("Erling Haaland", 6.5, 12.5, "T1")
     assert cards[1]["full_name"] == "Salah"
@@ -195,6 +197,7 @@ def _squad15(conn):
             add_stat_row(conn, gw, pid, team, pts=pid % 7, xg=0.1, xa=0.05, hits=gw % 2)
         views.append(view(pid, f"P{pid}", pos, f"T{team}"))
     refresh(conn)
+    refresh_breakdown_cache(conn)
     return analysis(*views)
 
 
@@ -213,6 +216,8 @@ def test_player_cards_fast_and_reads_no_heavy_view_per_card(v2db):
     assert elapsed < 1.0
     heavy = ("v_player_threat", "v_team_conceded", "v_team_gw", "v_pf_stat", "v_xp2")
     assert not [s for s in seen if any(h in s for h in heavy)]
+    assert len([s for s in seen if "xp2_breakdown_cache" in s]) == 1   # one query, all cards
+    assert all(c["breakdown"] is not None for c in cards)
 
 
 def test_player_cards_weakness_from_passed_table_matches_own(v2db):
@@ -282,3 +287,50 @@ def test_cards_merge_extras(v2db):
     assert cards[0]["options"] == []
     assert "was" not in cards[1]
     assert "was" not in player_cards(v2db, analysis(view(1, "A", "MID")), [])[0]
+
+
+def test_card_breakdown_none_when_source_model(v2db):
+    setup_league(v2db)
+    add(v2db, 1, "MID", 1, source="model")
+    add(v2db, 2, "MID", 1, source="v2/model")
+    add(v2db, 3, "MID", 2, source="last5_avg/v2")
+    for gw in range(1, 7):
+        for pid, team in ((1, 1), (2, 1), (3, 2)):
+            add_stat_row(v2db, gw, pid, team, pts=3, xg=0.2, xa=0.1)
+    refresh(v2db)
+    refresh_breakdown_cache(v2db)
+    cards = player_cards(v2db, analysis(view(1, "A", "MID"), view(2, "B", "MID"),
+                                        view(3, "C", "MID")), [])
+    assert cards[0]["breakdown"] is None and cards[2]["breakdown"] is None
+    b = cards[1]["breakdown"]
+    assert b["source"] == "v2" and b["player_id"] == 2
+    nxt = v2db.execute("SELECT xp_v2_next FROM v_xp2_next WHERE player_id = 2").fetchone()[0]
+    assert b["total"] == nxt
+    assert abs(b["app_pts"] + b["att_pts"] + b["cs_pts"] + b["defcon_pts"] - b["total"]) < 1e-9
+
+
+def test_card_compare_fpl_form_none_when_snapshot_stale(v2db):
+    setup_league(v2db)
+    add(v2db, 1, "MID", 1, snap_gw=6)                    # next_gw is 7: last saved ep_next is old
+    add(v2db, 2, "MID", 1)                               # saved for gw 7
+    for gw, pts in zip(range(1, 7), (1, 2, 3, 4, 5, 6)):
+        add_stat_row(v2db, gw, 1, 1, pts=pts)
+    refresh(v2db)
+    cards = player_cards(v2db, analysis(view(1, "A", "MID"), view(2, "B", "MID")), [])
+    assert cards[0]["compare"]["fpl_form"] is None
+    assert cards[1]["compare"]["fpl_form"] == 4.0
+    # last 5 gameweek totals before gw 7 (2..6), x 1 fixture in gw 7; no history -> None
+    assert cards[0]["compare"]["last5"] == pytest.approx(4.0)
+    assert cards[1]["compare"]["last5"] is None
+
+
+def test_card_compare_last5_matches_site_rule_in_double_gameweek(v2db):
+    """last5 is the site's last5_avg number: the mean x his fixtures in next_gw (team 1: 2 in gw 8)."""
+    setup_league(v2db)
+    add(v2db, 1, "MID", 1, snap_gw=8)
+    for gw in range(1, 7):
+        add_stat_row(v2db, gw, 1, 1, pts=3)
+    v2db.execute("UPDATE meta SET value = '8' WHERE key = 'next_gw'")
+    refresh(v2db)
+    c = player_cards(v2db, analysis(view(1, "A", "MID")), [])[0]
+    assert c["compare"]["last5"] == pytest.approx(6.0)

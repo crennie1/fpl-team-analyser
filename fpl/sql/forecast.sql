@@ -27,6 +27,7 @@
 -- Leftover view from an earlier version of this file; no longer defined.
 DROP VIEW IF EXISTS v_player_gw_agg;
 DROP VIEW IF EXISTS v_xp_next;
+DROP VIEW IF EXISTS v_last5_next;
 DROP VIEW IF EXISTS v_xp;
 DROP VIEW IF EXISTS v_xp_fixture;
 DROP VIEW IF EXISTS v_target_fixture;
@@ -217,6 +218,23 @@ FROM v_xp_fixture
 GROUP BY season, player_id, gw, as_of_gw;
 
 
+-- Mean of each player's last 5 loaded gameweek totals before next_gw (current season;
+-- gameweeks with a non-NULL total only, a double gameweek counting as one total).
+-- The 'last5_avg' source of v_xp_next, and the app's "last-5 average" comparison.
+CREATE VIEW v_last5_next AS
+SELECT player_id, AVG(pts) AS avg5
+FROM (SELECT player_id, pts,
+             ROW_NUMBER() OVER (PARTITION BY player_id ORDER BY gw DESC) AS rn
+      FROM (SELECT player_id, gw, SUM(total_points) AS pts
+            FROM player_gw
+            WHERE season = (SELECT value FROM meta WHERE key = 'current_season')
+              AND gw < (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'next_gw')
+            GROUP BY player_id, gw)
+      WHERE pts IS NOT NULL)
+WHERE rn <= 5
+GROUP BY player_id;
+
+
 -- What the app shows: current season, upcoming gameweek.
 --
 -- In plain English: each horizon has its own source, chosen by the backtest
@@ -264,17 +282,7 @@ form AS (            -- start_prob for the upcoming gameweek only
       AND as_of_gw = (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'next_gw')
 ),
 last5 AS (           -- mean of his last 5 loaded gameweek totals before next_gw
-    SELECT player_id, AVG(pts) AS avg5
-    FROM (SELECT player_id, pts,
-                 ROW_NUMBER() OVER (PARTITION BY player_id ORDER BY gw DESC) AS rn
-          FROM (SELECT player_id, gw, SUM(total_points) AS pts
-                FROM player_gw
-                WHERE season = (SELECT value FROM meta WHERE key = 'current_season')
-                  AND gw < (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'next_gw')
-                GROUP BY player_id, gw)
-          WHERE pts IS NOT NULL)
-    WHERE rn <= 5
-    GROUP BY player_id
+    SELECT player_id, avg5 FROM v_last5_next
 ),
 src AS (             -- 'fpl_ep' (old setting) or anything unknown or missing means v2
     SELECT CASE WHEN s1 IN ('model', 'last5_avg') THEN s1 ELSE 'v2' END AS s1,
