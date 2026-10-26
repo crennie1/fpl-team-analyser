@@ -1,6 +1,6 @@
 # FPL Team Analyser — Handoff
 
-*Last updated: 21 Oct 2026. To continue in a new Claude session, see "Starting a new session" at the bottom.*
+*Last updated: 26 Oct 2026. To continue in a new Claude session, see "Starting a new session" at the bottom.*
 
 ## 1. What it is and why
 A free website that analyses any Fantasy Premier League team. It's a **portfolio project for data-analyst job applications**, and could become a paid tool later. The owner (me) directs the AI to build it and doesn't write code. In interviews I explain the decisions and results, not the code.
@@ -12,7 +12,7 @@ A free website that analyses any Fantasy Premier League team. It's a **portfolio
 
 ## 2. What the site does (v2, live since 20 Oct 2026)
 - Enter an FPL team ID to see your squad as **dark player cards**: drawn club kits (no Premier League images, for copyright), initials, expected points (xP), next opponent coloured by difficulty, and a DefCon bar (Clean sheet % for goalkeepers).
-- **Click a player** for a stats panel: xP next week and next 3 weeks, DefCon chance (with a plain-English definition), next 3 fixtures, last-6-gameweek form/xG/xA/DefCon hits, the opponent's weakness against his position, and set-piece duties. On a phone the panel opens under the tapped row.
+- **Click a player** for a stats panel: xP next week and next 3 weeks, a breakdown of where his xP comes from (playing, goals and assists, clean sheet, DefCon, each with a one-line reason, plus a warning that bonus points aren't included), DefCon chance, next 3 fixtures, last-6-gameweek form/xG/xA/DefCon hits, the opponent's weakness against his position, and set-piece duties. On a phone the panel opens under the tapped row.
 - **Grades strip:** six grades (Attack, Midfield, Defence, Fixtures, Injury risk, Bench) relative to 500 random real FPL teams, plus projected points against the average manager.
 - **Sell suggestions** on the pitch: a red "SELL" tag, with the affordable replacement and the 3-week gain shown in the panel.
 - **Opponent weaknesses tab:** points and xG each team concedes to GK/DEF/MID/FWD.
@@ -20,16 +20,22 @@ A free website that analyses any Fantasy Premier League team. It's a **portfolio
 - **Your plan vs your real team:** points over the next 3 weeks before and after hits, grades that changed (▲/▼), money in the bank, and an Out → In list.
 
 ## 3. The honest results (the interview story)
-Backtested on the 2025-26 season, tuned only on 2024-25 (so it's "out of sample"). Error is in points; lower is better:
+**The leak (26 Oct 2026).** The site used to show FPL's own "expected points", because an earlier backtest said FPL beat my models (1.371 against v2's 1.819). Using the site, I noticed the xP "is just recent points". Checked on 26 Oct: in live FPL data, FPL's number equalled its `form` (recent average points) for 412 of 451 players. We then proved the past-season archive's FPL prediction was recorded after each gameweek, three ways:
+1. It matched the points average over the 4 weeks *including* that week far better than the 4 weeks before (error 0.655 against 1.018 in 2024-25; 0.594 against 1.096 in 2025-26).
+2. Players who scored 12+ saw FPL's number jump with the result (7.19 against 4.19 the week before in 2024-25; 7.46 against 3.64 in 2025-26).
+3. On GW8 of 2026-27, using FPL's predictions our collector saved before kick-off, v2 beat FPL.
+
+Fixed: the backtest no longer scores those numbers and has a "Leak check" section; the site's xP is now my own model; and each player's panel breaks his xP into parts, with a clear "bonus points not included" warning.
+
+**The clean result.** Backtested on the 2025-26 season (13496 player-gameweeks, gameweeks 6-38), tuned only on 2024-25 (so it's "out of sample"). Error is in points; lower is better:
 
 | Method | 1 week | 3 weeks |
 |---|---|---|
-| FPL's own prediction | **1.371** | **3.635** |
-| My v2 model (xG, xA, opponent weakness, clean sheets, DefCon) | 1.819 | 4.047 |
-| My v1 model (form + fixtures) | 1.876 | 4.242 |
-| Last-5 average | 1.927 | 4.331 |
+| My v2 model (xG, xA, opponent weakness, clean sheets, DefCon) | **1.867** | **4.235** |
+| My v1 model (form + fixtures) | 1.929 | 4.498 |
+| Last-5 average | 1.986 | 4.634 |
 
-v2 beat my v1 model and the simple average but **not FPL**, so the site uses FPL's numbers (scaled by fixtures over 3 weeks) and shows v2's extra stats as information. A test on this season's games runs automatically from about gameweek 12.
+v2 wins both, so the site uses v2 for every xP. FPL's prediction is compared fairly only where it was saved before kick-off: on GW8 (427 players) v2 scored 1.832 and FPL 2.057. That's an early sign from one gameweek; the report says "too early to call" until 5 gameweeks are in, and it updates itself each gameweek.
 
 Interview prep is in `docs/interview-explainer.md`: plain English, with 5 likely questions and answers.
 
@@ -42,7 +48,7 @@ Interview prep is in `docs/interview-explainer.md`: plain English, with 5 likely
 - **The site:** Streamlit (`app.py`) loads your team live from FPL and draws the card view (`fpl/ui/team_sheet/index.html`).
 
 ## 5. Key decisions (made during the builds)
-- FPL's prediction is used wherever it beats my models, and the app only switches to my model if it's *strictly* better.
+- The site's xP always comes from my own models: whichever of v1, v2 and the last-5 average has the lowest error in the clean backtest (a tie goes to v1). FPL's number is never used as xP, because its archived predictions had seen the results (see §3).
 - Models are tuned on 2024-25 and tested on 2025-26, to avoid "seeing the answers".
 - 2025-26 archive gameweeks where FPL's prediction was stored as 0 for every player are treated as missing.
 - DefCon % is pulled toward the position average, so one lucky game can't show 95%. Opponent adjustments are capped at 0.5–2×.
@@ -88,7 +94,7 @@ Full ranked list with sizes: `docs/ROADMAP.md`. In short:
 3. **Build in small tasks**, each by a fresh helper, each reviewed, with fixes re-checked.
 4. **Final whole-project review**, then merge to `main`, push, and check the live site.
 
-Tests: `.venv/bin/pytest -q` (280 passing as of 21 Oct). Commits end with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
+Tests: `.venv/bin/pytest -q` (324 passing as of 26 Oct). Commits end with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 
 **Where the swap feature stands:** built and reviewed 21 Oct 2026. The first push (21 Oct) broke the live site because Streamlit kept an old `fpl/suggest.py` loaded, so it was rolled back. It went live again on 26 Oct 2026 with a reload guard in `app.py`: each run fingerprints the `fpl` code and SQL files and reloads everything (and clears caches) when that changes.
 

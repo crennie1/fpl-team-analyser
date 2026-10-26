@@ -9,7 +9,7 @@ Ranked by impact on the two goals: getting hired as a data analyst, and possibly
 | 3 | **Player strengths/weaknesses + reasons for each grade** (rule-based text from real numbers) | Turns numbers into insight, which is the core analyst skill. Great for screenshots and interviews. | Medium | 2–3 h |
 | 4 | **"How it works" page in the app** (method, backtest chart, plain English) | Recruiters see your analysis without opening GitHub. | Small–medium | 1–2 h |
 | 5 | **DefCon calibration check** (predicted % vs actual hit rate, last season) | Proves the DefCon numbers are trustworthy, or shows how you fixed them. A strong data story. | Medium | 2–3 h |
-| 6 | **Better model attempt** (e.g. bonus points, home/away form, minutes trends), tested against FPL | Interview story whether it wins or loses. Do it after #1 and #5. | Large | Half a day |
+| 6 | **Better model attempt** (e.g. bonus points, home/away form, minutes trends), tested against FPL. **Next step (26 Oct 2026):** a bonus-points estimate. The site's xP is now v2, which leaves bonus out, so top attackers are often under-rated by 1–2 points a game; the player panel warns about this. | Interview story whether it wins or loses. Do it after #1 and #5. | Large | Half a day |
 | 7 | **Multi-week transfer planner** (2–3 moves across weeks, free transfers and hits) | The most-wanted FPL tool and the natural paid feature. | Large | 1 day+ |
 | 8 | **Mini-league view** (your squad vs rivals', who they own that you don't) | Strong user pull and shareable. Another paid-tier candidate. | Large | Half a day–1 day |
 | 9 | **Captain and chip advice** (best captain, when to play Bench Boost / Triple Captain) | Weekly-use feature that brings people back. | Medium | Half a day |
