@@ -20,10 +20,11 @@ A free website that analyses any Fantasy Premier League team. It's a **portfolio
 - **Your plan vs your real team:** points over the next 3 weeks before and after hits, grades that changed (▲/▼), money in the bank, and an Out → In list.
 
 ## 3. The honest results (the interview story)
-**The leak (26 Oct 2026).** The site used to show FPL's own "expected points", because an earlier backtest said FPL beat my models (1.371 against v2's 1.819). Using the site, I noticed the xP "is just recent points". Checked on 26 Oct: in live FPL data, FPL's number equalled its `form` (recent average points) for 412 of 451 players. We then proved the past-season archive's FPL prediction was recorded after each gameweek, three ways:
+**The leak (26 Oct 2026).** The site used to show FPL's own "expected points", because an earlier backtest said FPL beat my models (1.371 against v2's 1.819). Using the site, I noticed the xP "is just recent points". Checked on 26 Oct: in live FPL data, FPL's number equalled its `form` (recent average points) for 412 of 451 players. We then proved the past-season archive's FPL prediction was recorded after each gameweek, two ways:
 1. It matched the points average over the 4 weeks *including* that week far better than the 4 weeks before (error 0.655 against 1.018 in 2024-25; 0.594 against 1.096 in 2025-26).
 2. Players who scored 12+ saw FPL's number jump with the result (7.19 against 4.19 the week before in 2024-25; 7.46 against 3.64 in 2025-26).
-3. On GW8 of 2026-27, using FPL's predictions our collector saved before kick-off, v2 beat FPL.
+
+Separately, on GW8 (FPL's prediction saved before kick-off), v2 scored 1.832 and FPL 2.057. That's an early sign from one gameweek; too early to call.
 
 Fixed: the backtest no longer scores those numbers and has a "Leak check" section; the site's xP is now my own model; and each player's panel breaks his xP into parts, with a clear "bonus points not included" warning.
 
@@ -35,7 +36,7 @@ Fixed: the backtest no longer scores those numbers and has a "Leak check" sectio
 | My v1 model (form + fixtures) | 1.929 | 4.498 |
 | Last-5 average | 1.986 | 4.634 |
 
-v2 wins both, so the site uses v2 for every xP. FPL's prediction is compared fairly only where it was saved before kick-off: on GW8 (427 players) v2 scored 1.832 and FPL 2.057. That's an early sign from one gameweek; the report says "too early to call" until 5 gameweeks are in, and it updates itself each gameweek.
+v2 wins both, so the site uses v2 for every xP. FPL's prediction is compared fairly only where it was saved before kick-off: so far that's GW8 (427 players, see above). The report says "too early to call" until 5 gameweeks are in, and it updates itself each gameweek.
 
 Interview prep is in `docs/interview-explainer.md`: plain English, with 5 likely questions and answers.
 
@@ -50,7 +51,7 @@ Interview prep is in `docs/interview-explainer.md`: plain English, with 5 likely
 ## 5. Key decisions (made during the builds)
 - The site's xP always comes from my own models: whichever of v1, v2 and the last-5 average has the lowest error in the clean backtest (a tie goes to v1). FPL's number is never used as xP, because its archived predictions had seen the results (see §3).
 - Models are tuned on 2024-25 and tested on 2025-26, to avoid "seeing the answers".
-- 2025-26 archive gameweeks where FPL's prediction was stored as 0 for every player are treated as missing.
+- The archive's FPL predictions are no longer scored, because they had seen the results; only the leak check reads them. (2025-26 gameweeks where FPL's prediction was stored as 0 for every player are saved as missing.)
 - DefCon % is pulled toward the position average, so one lucky game can't show 95%. Opponent adjustments are capped at 0.5–2×.
 - There's no left/right flank analysis, because free data has no pitch locations. Weaknesses are by position instead.
 - Set-piece takers are shown as information only, since there's no history to test them.
@@ -94,13 +95,13 @@ Full ranked list with sizes: `docs/ROADMAP.md`. In short:
 3. **Build in small tasks**, each by a fresh helper, each reviewed, with fixes re-checked.
 4. **Final whole-project review**, then merge to `main`, push, and check the live site.
 
-Tests: `.venv/bin/pytest -q` (324 passing as of 26 Oct). Commits end with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
+Tests: `.venv/bin/pytest -q` (329 passing as of 26 Oct). Commits end with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 
 **Where the swap feature stands:** built and reviewed 21 Oct 2026. The first push (21 Oct) broke the live site because Streamlit kept an old `fpl/suggest.py` loaded, so it was rolled back. It went live again on 26 Oct 2026 with a reload guard in `app.py`: each run fingerprints the `fpl` code and SQL files and reloads everything (and clears caches) when that changes.
 
 ## 10. Gotchas
 - Some database views use `exp`/`ln` functions that the app adds itself. The plain `sqlite3` command line can't query the v2 views; use Python with `from fpl import db; db.connect('data/fpl.db')`, or DB Browser for SQLite.
-- `data/fpl.db` is about 13.5 MB. Saving it daily would bloat the repo, which is why the save rules in section 4 exist.
+- `data/fpl.db` is about 14.3 MB. Saving it daily would bloat the repo, which is why the save rules in section 4 exist.
 - Player photos and Premier League kit images are deliberately not used (copyright, if the app ever charges).
 - FPL predictions for this season are only stored from gameweek 8 onwards, so this season's test needs about 5 gameweeks of data first.
 

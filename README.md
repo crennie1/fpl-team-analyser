@@ -31,7 +31,7 @@ Plain English first. Jargon is explained as it appears.
 
 ### 2. Forecast
 
-Expected points for one match are:
+My first model (v1) works out expected points for one match as:
 
 ```
 expected points = chance he starts  x  his points per 90 minutes  x  fixture difficulty multiplier
@@ -41,9 +41,9 @@ expected points = chance he starts  x  his points per 90 minutes  x  fixture dif
 - **Points per 90 minutes:** his own rate over the last 6 gameweeks, or the position average if he has played too little.
 - **Fixture difficulty multiplier:** FDR is FPL's 1-to-5 difficulty rating for a match. The multiplier says how much easier or harder matches change a player's points, learned from last season.
 
-The forecast is written as a chain of SQL **views** (saved, named queries) in `fpl/sql/forecast.sql`. Python only runs them.
+The forecast is written as a chain of SQL **views** (saved, named queries) in `fpl/sql/forecast.sql`. Python only runs them. The site now uses forecast v2 (`fpl/sql/forecast_v2.sql`, described below), because it won the backtest.
 
-**Which forecast the app uses.** I backtested (tested on past data, looking only at what was known beforehand) three methods on the 2025-26 season: the SQL model (v1), forecast v2, and a simple last-5-gameweeks average. The score is **MAE** (mean absolute error: the average gap between prediction and real points; lower is better). All three are scored on the same 13496 player-gameweeks (gameweeks 6-38). The app uses whichever method has the lowest error, separately for next gameweek and for the next 3 gameweeks (the numbers behind the transfer suggestions). FPL's own number is never used.
+**Which forecast the app uses.** I backtested (tested on past data, looking only at what was known beforehand) three methods on the 2025-26 season: the SQL model (v1), forecast v2, and a simple last-5-gameweeks average. The score is **MAE** (mean absolute error: the average gap between prediction and real points; lower is better). All three are scored on the same 13496 player-gameweeks (gameweeks 6-38) for next gameweek; the 3-gameweek column uses 12656 rows (start gameweeks 6-36). The app uses whichever method has the lowest error, separately for next gameweek and for the next 3 gameweeks (the numbers behind the transfer suggestions). FPL's own number is never used.
 
 | Method | Next gameweek | Next 3 gameweeks |
 |---|---|---|

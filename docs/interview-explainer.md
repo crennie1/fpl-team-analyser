@@ -36,10 +36,10 @@ Version 1 did the first two. Version 2 adds richer stats, a better forecast atte
 This is the part of the project I'm proudest of, because it came from looking at the app as a user.
 
 - **How I noticed.** Using the site on 26 Oct, I felt the xP "is just recent points". It was FPL's own number, and when we checked the live FPL data on 26 Oct, FPL's "expected points" equalled its `form` (average points over about 30 days) for 412 of 451 players. A backward-looking average shouldn't beat a real model by a wide margin, yet the old backtest said it did (an error of 1.371 for FPL against 1.819 for v2).
-- **Proven three ways.** The past-season archive's FPL prediction was recorded after each gameweek, so it had seen the result:
+- **Proven two ways.** The past-season archive's FPL prediction was recorded after each gameweek, so it had seen the result:
   1. It matched the player's average over the 4 gameweeks *including* that week far better than the 4 gameweeks *before* it (error 0.655 against 1.018 in 2024-25; 0.594 against 1.096 in 2025-26). A prediction made before kick-off can only know the weeks before.
   2. When a player scored 12 or more, FPL's number for that week jumped with the result: 7.19 against 4.19 the week before in 2024-25, and 7.46 against 3.64 in 2025-26.
-  3. On GW8 of 2026-27, using FPL's predictions our own collector saved before kick-off, v2 had a lower error than FPL's prediction.
+- **Separately, a first fair test.** On GW8 of 2026-27, using FPL's predictions our own collector saved before kick-off, v2 had an error of 1.832 against FPL's 2.057. That is an early sign from one gameweek, not proof; it's too early to call.
 - **Fixed.** The backtest no longer scores the archive's FPL numbers and has a "Leak check" section that recomputes tests 1 and 2 on every run. FPL's prediction is now compared only where it was saved before the deadline. The site's xP comes from my own model, and each player's panel explains his number.
 
 ## How accurate was it?
@@ -92,6 +92,6 @@ It is the average size of the gap between predicted and actual points. It is eas
 The fair comparison with FPL is one gameweek so far, so it is an early sign, not proof. The forecast leaves out bonus points, cards and own goals. There is no left or right flank data. Set pieces have no history, so they are not in the forecast.
 
 **5. How did you work with the AI, and how did you know it was right?**
-I set the goal and the rules, such as "fit on one season, test on another" and "use a model only if it is strictly better". The build process checked every step against real data. The best example is the leak: I didn't trust a number that felt wrong in use, asked for it to be checked, and the data proved it. It caught that one lucky game could show a 95% DefCon chance, so the rate is now pulled toward the position average and the opponent adjustment is capped. The SQL is readable, the tests are automated, and every number comes from the database.
+I set the goal and the rules, such as "fit on one season, test on another" and "use a model only if it is strictly better". The build process checked every step against real data. The best example is the leak: I didn't trust a number that felt wrong in use, asked for it to be checked, and the data proved it. The review process caught that one lucky game could show a 95% DefCon chance, so the rate is now pulled toward the position average and the opponent adjustment is capped. The SQL is readable, the tests are automated, and every number comes from the database.
 
 (Swap in your own example if you have one.)

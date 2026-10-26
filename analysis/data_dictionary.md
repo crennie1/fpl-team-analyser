@@ -84,7 +84,7 @@ Every player registered in a season.
 | `second_name` | Full surname as registered. Empty if unknown. |
 
 ### `player_snapshot`
-What FPL said about each player at the time of a data collection. Latest collection wins (see the view `v_latest_snapshot`).
+What FPL said about each player at the time of a data collection. Latest collection wins (see the view `v_latest_snapshot`). Exception: a collection at or after a gameweek's deadline (`gw_deadline`) never replaces a row for that gameweek taken before it, so FPL's pre-deadline prediction is kept for the fair check.
 
 | Column | Meaning |
 |---|---|
