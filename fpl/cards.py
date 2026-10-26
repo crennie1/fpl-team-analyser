@@ -131,14 +131,19 @@ def _in_list(ids):
 
 def _add_breakdowns(conn, cards):
     """Fill card["breakdown"] for v2-sourced cards from one query on xp2_breakdown_cache
-    (the snapshot of v_xp2_breakdown_next taken with xp_next_cache, so the parts match it)."""
-    ids = [c["id"] for c in cards if (c.pop("_xp_source") or "").startswith("v2")]
+    (copy of v_xp2_breakdown_cached, made with xp_next_cache from the same v2 rows, so the
+    parts add up to the cached xp_next)."""
+    ids = []
+    for c in cards:
+        if (c.pop("_xp_source") or "").startswith("v2"):
+            ids.append(c["id"])
     rows = {}
     if ids:
         rows = {r["player_id"]: dict(r) for r in conn.execute(
             f"SELECT * FROM xp2_breakdown_cache WHERE player_id IN {_in_list(ids)}", ids)}
     for c in cards:
         row = rows.get(c["id"])
+        # no row although the source is v2 (e.g. cache older than the player): no breakdown
         c["breakdown"] = None if row is None else {**row, "source": "v2"}
 
 

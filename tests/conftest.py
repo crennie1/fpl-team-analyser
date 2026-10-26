@@ -138,6 +138,7 @@ def db_with_sample(tmp_db):
                                       snap(3, 25, 0.5), snap(4, None, 6.0)])
     conn.commit()
     db.apply_views(conn)
+    db.refresh_v2_fixture_cache(conn)   # v_xp_next reads v2 from this copy
     return conn
 
 

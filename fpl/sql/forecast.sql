@@ -241,7 +241,9 @@ GROUP BY player_id;
 -- (meta.forecast_source_1gw for xp_next, meta.forecast_source_3gw for xp_next3;
 -- an older meta.forecast_source is the fallback for both). FPL's own number is
 -- never a source: a stored 'fpl_ep', or no setting at all, is read as 'v2'.
---   'v2'         forecast v2 (v_xp2_next).
+--   'v2'         forecast v2 (v_xp2_next, read through v_xp2_next_cached: the same SQL
+--                over table xp2_fixture_next_cache, which db.refresh_xp_cache fills first,
+--                so this view needs that table and is only as fresh as it).
 --   'model'      the v1 SQL model.
 --   'last5_avg'  the player's average total points over his last 5 loaded gameweeks
 --                before next_gw (each gameweek's points added up, so a double gameweek
@@ -302,7 +304,7 @@ pick AS (            -- which number does each horizon use?
     FROM next3 AS n
     CROSS JOIN src
     LEFT JOIN last5 AS l ON l.player_id = n.player_id
-    LEFT JOIN v_xp2_next AS v2 ON v2.player_id = n.player_id
+    LEFT JOIN v_xp2_next_cached AS v2 ON v2.player_id = n.player_id   -- v_xp2_next, cached
 ),
 used AS (
     SELECT p.*,

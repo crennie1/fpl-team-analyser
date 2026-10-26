@@ -203,8 +203,11 @@ A saved copy of the view `v_xp_next`, taken after each data load. It is a table 
 | `cs_chance` | Chance his team keeps a clean sheet next gameweek. Always filled from v2. In a double gameweek it is the sum over both fixtures (what expected points use). |
 | `cs_display` | The clean-sheet chance the app shows for goalkeepers: in a double gameweek, the chance of at least one clean sheet, `1 - (1 - p1) x (1 - p2)`, so it never passes 100%. |
 
+### `xp2_fixture_next_cache`
+A saved copy of the view `v_xp2_fixture_next`: forecast v2 per player and fixture for the next 3 gameweeks. `db.refresh_xp_cache` makes it first, so the slow v2 chain (a few seconds) runs once per refresh; `xp_next_cache` (through `v_xp2_next_cached`) and `xp2_breakdown_cache` are both built from it. Created by the refresh, not by `schema.sql`; the view is its only column definition.
+
 ### `xp2_breakdown_cache`
-A saved copy of the view `v_xp2_breakdown_next`, taken with `xp_next_cache` by `db.refresh_xp_cache` (so its `total` matches the cached v2 number exactly). It is a table because the v2 views take a few seconds to run; the player cards read it once per rerun for the whole squad. The columns are the same as `v_xp2_breakdown_next`.
+A saved copy of the breakdown (the view `v_xp2_breakdown_cached`, the same SQL as `v_xp2_breakdown_next` read from `xp2_fixture_next_cache`), taken with `xp_next_cache` by `db.refresh_xp_cache`, so its `total` equals the cached v2 number exactly. The player cards read it once per rerun for the whole squad. Created by the refresh, not by `schema.sql`. The columns are the same as `v_xp2_breakdown_next`.
 
 ## The forecast (v1): how expected points are worked out
 
@@ -269,9 +272,12 @@ v_as_of_grid, v_latest_snapshot, v_fdr_multiplier
                                           (copied into xp_next_cache)
                                                     |
 v_pf_stat -> v_team_gw, v_team_gw_pos -> v_team_conceded, v_team_xg -> v_opp_weakness
-   -> v_player_threat -> v_xp2_slot -> v_xp2_fixture -> v_cs_chance, v_defcon_chance, v_xp2 -> v_xp2_next
-                                                                       (feeds v_xp_next)
-                                          v_xp2_fixture -> v_xp2_breakdown_next (copied into xp2_breakdown_cache)
+   -> v_player_threat -> v_xp2_slot -> v_xp2_fixture -> v_cs_chance, v_defcon_chance, v_xp2
+                                       v_xp2_fixture -> v_xp2_fixture_next -> v_xp2_next, v_xp2_breakdown_next (live)
+                                                          |
+                                          (copied into xp2_fixture_next_cache)
+                                                          |
+                          v_xp2_next_cached (feeds v_xp_next), v_xp2_breakdown_cached (copied into xp2_breakdown_cache)
 v_last5_next (feeds v_xp_next's last5_avg source and the cards' last-5 comparison)
 v_squad_pick_xp + v_squad_fixtures -> v_squad_metrics -> v_squad_area_value -> v_squad_grades
 ```
@@ -376,7 +382,7 @@ Each current-season player's mean total points over his last 5 loaded gameweeks 
 | `avg5` | Mean of up to 5 gameweek totals. No row without any earlier gameweek. |
 
 ### `v_xp_next`
-What the app shows: current season, upcoming gameweek. See "What the app shows" above. This is the view that is copied into `xp_next_cache`.
+What the app shows: current season, upcoming gameweek. See "What the app shows" above. This is the view that is copied into `xp_next_cache`. Its v2 numbers come from `v_xp2_next_cached`, so it needs `xp2_fixture_next_cache` (made first by `db.refresh_xp_cache`).
 
 | Column | Meaning |
 |---|---|
@@ -467,8 +473,11 @@ Every component and the expected points, per fixture.
 #### `v_cs_chance`, `v_defcon_chance`, `v_xp2`
 Per player per gameweek. `v_cs_chance` sums the clean-sheet chance over his fixtures. `v_defcon_chance` is `1 - (product of (1 - p))` over his fixtures. `v_xp2` sums `xp_v2`. A blank gameweek gives 0.
 
+#### `v_xp2_fixture_next`
+`v_xp2_fixture` for the app: current season, forecast from `next_gw`, target gameweeks `next_gw` to `next_gw + 2`. Adds `opp_name`, the opponent's short name (empty in a blank). Filters are scalar subqueries, so only that one forecast-from gameweek is computed. Copied into `xp2_fixture_next_cache` by the refresh.
+
 #### `v_xp2_next`
-What the app reads from v2: current season, upcoming gameweek.
+v2 per player for the app: current season, upcoming gameweek. Live (reads `v_xp2_fixture_next`); the app's numbers come from `v_xp2_next_cached`, the same SQL over `xp2_fixture_next_cache`, which `v_xp_next` reads.
 
 | Column | Meaning |
 |---|---|
@@ -479,7 +488,7 @@ What the app reads from v2: current season, upcoming gameweek.
 | `cs_display_next` | Chance of at least one clean sheet next gameweek: `1 - product of (1 - p)`. |
 
 #### `v_xp2_breakdown_next`
-The upcoming gameweek's v2 number split into the four parts the app explains: one row per current-season player, for `next_gw` only (filters are scalar subqueries, as in `v_xp2_next`, so only that gameweek is forecast; it still takes a few seconds, hence `xp2_breakdown_cache`).
+The upcoming gameweek's v2 number split into the four parts the app explains: one row per current-season player, for `next_gw` only. Live (reads `v_xp2_fixture_next`, a few seconds); `v_xp2_breakdown_cached` is the same SQL over `xp2_fixture_next_cache` and is what `xp2_breakdown_cache` copies.
 
 | Column | Meaning |
 |---|---|
@@ -489,7 +498,10 @@ The upcoming gameweek's v2 number split into the four parts the app explains: on
 | `app_pts`, `att_pts`, `cs_pts`, `defcon_pts` | `v_xp2_fixture`'s parts summed over his fixtures. They add up to `total` (to float rounding). All 0 in a blank. |
 | `total` | Sum of `xp_v2` over his fixtures: equal to `v_xp2_next.xp_v2_next`. |
 | `xg90`, `xa90`, `opp_xg_ratio`, `own_xgc_pm`, `opp_atk_ratio`, `cs_chance`, `defcon_chance`, `defcon_hits`, `defcon_apps` | The inputs, from his first fixture (lowest `fixture_id`). Empty in a blank. |
-| `opp_short` | Opponents' short names joined with ", " in fixture order. Empty in a blank. |
+| `opp_short` | Opponents' short names joined with ", " in fixture order (up to 3). Empty in a blank. |
+
+#### `v_xp2_next_cached`, `v_xp2_breakdown_cached`
+`v_xp2_next` and `v_xp2_breakdown_next` with the same SQL, reading the table `xp2_fixture_next_cache` instead of the live view. `v_xp_next` reads `v_xp2_next_cached`, so `v_xp_next` is only as fresh as that table (run `db.refresh_xp_cache`).
 
 ### `v_squad_pick_xp`
 Each squad pick with the player's position, expected points and risk flag.

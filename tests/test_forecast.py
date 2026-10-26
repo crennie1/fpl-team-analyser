@@ -98,9 +98,9 @@ def test_old_single_fpl_ep_meta_means_v2(db_with_sample):
 def test_player_without_v2_falls_back_to_model(db_with_sample):
     conn = db_with_sample
     conn.execute("INSERT INTO meta (key, value) VALUES ('forecast_source', 'fpl_ep')")
-    # stand-in v2 view: player 1 has no v2 number, player 2 has one
-    conn.execute("DROP VIEW v_xp2_next")
-    conn.execute("CREATE VIEW v_xp2_next AS "
+    # stand-in v2 view (v_xp_next reads v_xp2_next_cached): player 1 has no v2 number, player 2 has one
+    conn.execute("DROP VIEW v_xp2_next_cached")
+    conn.execute("CREATE VIEW v_xp2_next_cached AS "
                  "SELECT 1 AS player_id, NULL AS xp_v2_next, NULL AS xp_v2_next3, "
                  "NULL AS defcon_chance_next, NULL AS cs_chance_next, NULL AS cs_display_next "
                  "UNION ALL SELECT 2, 3.0, 9.0, 0.1, 0.2, 0.2")

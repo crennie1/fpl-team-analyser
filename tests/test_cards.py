@@ -2,12 +2,20 @@
 import pytest
 
 from fpl.analyse import Analysis, PlayerView
-from fpl.db import refresh_breakdown_cache
+from fpl import db
 from fpl.cards import ordinal, player_cards, replacement_pool, weakness_table
 from fpl.suggest import Suggestion
 from tests.conftest import _insert
-from tests.test_forecast_v2 import CUR, add_stat_row, refresh
+from tests.test_forecast_v2 import CUR, add_stat_row
+from tests.test_forecast_v2 import refresh as refresh_views
 from tests.test_forecast_v2 import v2db  # noqa: F401  (fixture)
+
+
+def refresh(conn):
+    """Views plus the v2 caches the cards read (xp_next_cache is set by `add`, not rebuilt)."""
+    refresh_views(conn)
+    db.refresh_v2_fixture_cache(conn)
+    db.refresh_breakdown_cache(conn)
 
 
 def add(conn, pid, pos, team, first=None, second=None, web="Web", defcon=None, cs=None,
@@ -197,7 +205,6 @@ def _squad15(conn):
             add_stat_row(conn, gw, pid, team, pts=pid % 7, xg=0.1, xa=0.05, hits=gw % 2)
         views.append(view(pid, f"P{pid}", pos, f"T{team}"))
     refresh(conn)
-    refresh_breakdown_cache(conn)
     return analysis(*views)
 
 
@@ -298,7 +305,6 @@ def test_card_breakdown_none_when_source_model(v2db):
         for pid, team in ((1, 1), (2, 1), (3, 2)):
             add_stat_row(v2db, gw, pid, team, pts=3, xg=0.2, xa=0.1)
     refresh(v2db)
-    refresh_breakdown_cache(v2db)
     cards = player_cards(v2db, analysis(view(1, "A", "MID"), view(2, "B", "MID"),
                                         view(3, "C", "MID")), [])
     assert cards[0]["breakdown"] is None and cards[2]["breakdown"] is None

@@ -66,15 +66,22 @@
 --   v_xp2_slot        a row per player and fixture (a blank gameweek has fixture_id NULL)
 --   v_xp2_fixture     every component and the expected points, per fixture
 --   v_cs_chance, v_defcon_chance, v_xp2   per player per gameweek
+--   v_xp2_fixture_next  v_xp2_fixture for the app: current season, as_of_gw = next_gw,
+--                     gw next_gw .. next_gw + 2 (copied into table xp2_fixture_next_cache)
 --   v_xp2_next        what the app shows (current season, upcoming gameweek)
 --   v_xp2_breakdown_next  v_xp2_next's upcoming-gameweek number split into its four parts
+--   v_xp2_next_cached, v_xp2_breakdown_cached   the same two, read from
+--                     xp2_fixture_next_cache so db.refresh_xp_cache runs v2 only once
 --
 -- SQL functions `exp` and `ln` come from SQLite's math functions (3.35+) or, where the
 -- build lacks them, fpl.db.register_functions registers Python's math.exp / math.log (V1).
 -- =====================================================================
 
+DROP VIEW IF EXISTS v_xp2_breakdown_cached;
+DROP VIEW IF EXISTS v_xp2_next_cached;
 DROP VIEW IF EXISTS v_xp2_breakdown_next;
 DROP VIEW IF EXISTS v_xp2_next;
+DROP VIEW IF EXISTS v_xp2_fixture_next;
 DROP VIEW IF EXISTS v_xp2;
 DROP VIEW IF EXISTS v_defcon_chance;
 DROP VIEW IF EXISTS v_cs_chance;
@@ -391,13 +398,27 @@ FROM v_xp2_fixture
 GROUP BY season, player_id, gw, as_of_gw;
 
 
--- What the app shows: current season, upcoming gameweek (next_gw .. next_gw + 2 for
--- the 3-gameweek total). Filters are scalar subqueries so SQLite forecasts only that one
--- gameweek rather than every gameweek of every season.
+-- v_xp2_fixture rows the app needs: current season, as_of_gw = next_gw, target gameweeks
+-- next_gw .. next_gw + 2, plus the opponent's short name (opp_name, NULL in a blank).
+-- Filters are scalar subqueries so SQLite pushes them down and forecasts only that one
+-- as_of_gw instead of every gameweek of every season. db.refresh_xp_cache copies this
+-- view once into the table xp2_fixture_next_cache (the v2 chain takes seconds).
+CREATE VIEW v_xp2_fixture_next AS
+SELECT x.*, t.short_name AS opp_name
+FROM v_xp2_fixture AS x
+LEFT JOIN team AS t ON t.season = x.season AND t.team_id = x.opp_id
+WHERE x.season = (SELECT value FROM meta WHERE key = 'current_season')
+  AND x.as_of_gw = (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'next_gw')
+  AND x.gw BETWEEN (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'next_gw')
+               AND (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'next_gw') + 2;
+
+
+-- v2 per player for the app: the upcoming gameweek (xp_v2_next) and next_gw .. next_gw + 2
+-- (xp_v2_next3). Live: reads v_xp2_fixture_next. The app's numbers come from
+-- v_xp2_next_cached (same SQL on the cached rows; keep the two bodies identical).
 CREATE VIEW v_xp2_next AS
 SELECT player_id,
-       SUM(CASE WHEN gw = (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'next_gw')
-                THEN xp_v2 END) AS xp_v2_next,
+       SUM(CASE WHEN gw = nxt THEN xp_v2 END) AS xp_v2_next,
        SUM(xp_v2) AS xp_v2_next3,
        -- DefCon chance in the upcoming gameweek: 1 - Π(1 - p), as in v_defcon_chance
        1.0 - exp(SUM(CASE WHEN gw = nxt THEN ln(1.0 - defcon_chance) END)) AS defcon_chance_next,
@@ -408,34 +429,26 @@ SELECT player_id,
             ELSE 1.0 - exp(SUM(CASE WHEN gw = nxt THEN ln(1.0 - cs_chance) END)) END
          AS cs_display_next
 FROM (SELECT *, (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'next_gw') AS nxt
-      FROM v_xp2_fixture
-      WHERE season = (SELECT value FROM meta WHERE key = 'current_season')
-        AND as_of_gw = (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'next_gw')
-        AND gw BETWEEN (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'next_gw')
-                   AND (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'next_gw') + 2)
+      FROM v_xp2_fixture_next)
 GROUP BY player_id;
 
 
-
 -- The upcoming gameweek's v2 number split into the four parts the app explains, one row
--- per player (current season, as_of_gw = gw = next_gw; filters are scalar subqueries, as
--- in v_xp2_next, so SQLite forecasts that one gameweek only).
+-- per player. Live: reads v_xp2_fixture_next (as v_xp2_next does); the app reads
+-- xp2_breakdown_cache, built from v_xp2_breakdown_cached (same SQL on the cached rows;
+-- keep the two bodies identical).
 --   app_pts, att_pts, cs_pts, defcon_pts  v_xp2_fixture's parts (each x start_prob),
 --                summed over the gameweek's fixtures; they add up to total (float rounding)
 --   total        SUM(xp_v2), the same sum as v_xp2_next.xp_v2_next
 --   n_fixtures   0 blank, 1, 2 double (the app's "2 games" note)
 --   xg90 .. defcon_apps  the inputs, from his first fixture (by fixture_id); opponent
 --                ratios and chances can differ in a double gameweek's second fixture
---   opp_short    opponents' short names, comma-joined in fixture_id order; NULL when blank
+--   opp_short    opponents' short names, ", "-joined in fixture_id order; NULL when blank
 CREATE VIEW v_xp2_breakdown_next AS
 WITH fx AS (
-    SELECT x.*, t.short_name AS opp_name,
-           ROW_NUMBER() OVER (PARTITION BY x.player_id ORDER BY x.fixture_id) AS rn
-    FROM v_xp2_fixture AS x
-    LEFT JOIN team AS t ON t.season = x.season AND t.team_id = x.opp_id
-    WHERE x.season = (SELECT value FROM meta WHERE key = 'current_season')
-      AND x.as_of_gw = (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'next_gw')
-      AND x.gw = (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'next_gw')
+    SELECT *, ROW_NUMBER() OVER (PARTITION BY player_id ORDER BY fixture_id) AS rn
+    FROM v_xp2_fixture_next
+    WHERE gw = (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'next_gw')
 )
 SELECT player_id,
        COUNT(fixture_id) AS n_fixtures,
@@ -455,6 +468,61 @@ SELECT player_id,
        MAX(CASE WHEN rn = 1 AND fixture_id IS NOT NULL THEN defcon_chance END) AS defcon_chance,
        MAX(CASE WHEN rn = 1 THEN defcon_hits END) AS defcon_hits,
        MAX(CASE WHEN rn = 1 THEN defcon_apps END) AS defcon_apps,
-       group_concat(opp_name, ', ') AS opp_short     -- fx rows arrive in rn order
+       -- opponents in fixture order (works on any SQLite; no group_concat ORDER BY needed)
+       MAX(CASE WHEN rn = 1 THEN opp_name END)
+         || COALESCE(', ' || MAX(CASE WHEN rn = 2 THEN opp_name END), '')
+         || COALESCE(', ' || MAX(CASE WHEN rn = 3 THEN opp_name END), '') AS opp_short
+FROM fx
+GROUP BY player_id;
+
+
+-- The two views above over the table xp2_fixture_next_cache (a copy of v_xp2_fixture_next
+-- made by db.refresh_xp_cache), so the refresh runs the v2 chain once: v_xp_next reads
+-- v_xp2_next_cached and xp2_breakdown_cache copies v_xp2_breakdown_cached.
+CREATE VIEW v_xp2_next_cached AS
+SELECT player_id,
+       SUM(CASE WHEN gw = nxt THEN xp_v2 END) AS xp_v2_next,
+       SUM(xp_v2) AS xp_v2_next3,
+       -- DefCon chance in the upcoming gameweek: 1 - Π(1 - p), as in v_defcon_chance
+       1.0 - exp(SUM(CASE WHEN gw = nxt THEN ln(1.0 - defcon_chance) END)) AS defcon_chance_next,
+       SUM(CASE WHEN gw = nxt THEN cs_chance END) AS cs_chance_next,
+       -- what the app shows as "Clean sheet %": P(at least one clean sheet) = 1 - Π(1 - p)
+       -- (the sum above can pass 100% in a double gameweek; it stays the input to xP)
+       CASE WHEN MAX(CASE WHEN gw = nxt THEN cs_chance END) >= 1.0 THEN 1.0
+            ELSE 1.0 - exp(SUM(CASE WHEN gw = nxt THEN ln(1.0 - cs_chance) END)) END
+         AS cs_display_next
+FROM (SELECT *, (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'next_gw') AS nxt
+      FROM xp2_fixture_next_cache)
+GROUP BY player_id;
+
+
+CREATE VIEW v_xp2_breakdown_cached AS
+WITH fx AS (
+    SELECT *, ROW_NUMBER() OVER (PARTITION BY player_id ORDER BY fixture_id) AS rn
+    FROM xp2_fixture_next_cache
+    WHERE gw = (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'next_gw')
+)
+SELECT player_id,
+       COUNT(fixture_id) AS n_fixtures,
+       MAX(start_prob) AS start_prob,
+       MAX(minutes_last5) AS minutes_last5,
+       SUM(app_pts) AS app_pts,
+       SUM(att_pts) AS att_pts,
+       SUM(cs_pts) AS cs_pts,
+       SUM(defcon_pts) AS defcon_pts,
+       SUM(xp_v2) AS total,
+       MAX(CASE WHEN rn = 1 THEN xg90 END) AS xg90,
+       MAX(CASE WHEN rn = 1 THEN xa90 END) AS xa90,
+       MAX(CASE WHEN rn = 1 THEN opp_xg_ratio END) AS opp_xg_ratio,
+       MAX(CASE WHEN rn = 1 THEN own_xgc_pm END) AS own_xgc_pm,
+       MAX(CASE WHEN rn = 1 THEN opp_atk_ratio END) AS opp_atk_ratio,
+       MAX(CASE WHEN rn = 1 AND fixture_id IS NOT NULL THEN cs_chance END) AS cs_chance,
+       MAX(CASE WHEN rn = 1 AND fixture_id IS NOT NULL THEN defcon_chance END) AS defcon_chance,
+       MAX(CASE WHEN rn = 1 THEN defcon_hits END) AS defcon_hits,
+       MAX(CASE WHEN rn = 1 THEN defcon_apps END) AS defcon_apps,
+       -- opponents in fixture order (works on any SQLite; no group_concat ORDER BY needed)
+       MAX(CASE WHEN rn = 1 THEN opp_name END)
+         || COALESCE(', ' || MAX(CASE WHEN rn = 2 THEN opp_name END), '')
+         || COALESCE(', ' || MAX(CASE WHEN rn = 3 THEN opp_name END), '') AS opp_short
 FROM fx
 GROUP BY player_id;
