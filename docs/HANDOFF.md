@@ -90,7 +90,7 @@ Full ranked list with sizes: `docs/ROADMAP.md`. In short:
 
 Tests: `.venv/bin/pytest -q` (280 passing as of 21 Oct). Commits end with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 
-**Where the swap feature stands:** the feature was built and reviewed on 21 Oct 2026 on the `panel-swaps` branch. Merging to `main` and pushing are waiting for the owner's OK, so it is not live yet.
+**Where the swap feature stands:** built and reviewed 21 Oct 2026. The first push (21 Oct) broke the live site because Streamlit kept an old `fpl/suggest.py` loaded, so it was rolled back. It went live again on 26 Oct 2026 with a reload guard in `app.py`: each run fingerprints the `fpl` code and SQL files and reloads everything (and clears caches) when that changes.
 
 ## 10. Gotchas
 - Some database views use `exp`/`ln` functions that the app adds itself. The plain `sqlite3` command line can't query the v2 views; use Python with `from fpl import db; db.connect('data/fpl.db')`, or DB Browser for SQLite.
