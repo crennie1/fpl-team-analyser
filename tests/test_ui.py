@@ -482,3 +482,68 @@ def test_set_ft_sends_clamped_value():
     finally:
         del os.environ["AFTER"]
     assert [m["value"]["ft"] for m in out["posted"] if m["type"] == "streamlit:setComponentValue"] == [5, 0, 3]
+
+
+BREAKDOWN = {"n_fixtures": 1, "start_prob": 0.97, "minutes_last5": 437, "app_pts": 1.9,
+             "att_pts": 0.5, "cs_pts": 0.9, "defcon_pts": 1.2, "total": 4.5, "xg90": 0.07,
+             "xa90": 0.05, "opp_xg_ratio": 0.9, "own_xgc_pm": 1.1, "opp_atk_ratio": 1.3,
+             "cs_chance": 0.22, "defcon_chance": 0.6, "defcon_hits": 4, "defcon_apps": 6,
+             "opp_short": "LIV", "source": "v2"}
+WARNING = "⚠ Bonus points not included — top attackers often earn 1–2 more a game than this shows."
+
+
+def bd_panel(pos="DEF", bd=None, compare=None, **card):
+    b = None if bd is False else {**BREAKDOWN, **(bd or {})}
+    card = {"pos": pos, "xp": 4.5, "breakdown": b,
+            "compare": compare or {"fpl_form": 6.7, "last5": 4.2}, **card}
+    return render(payload(**card), 0)["panel"]
+
+
+@needs_node
+def test_breakdown_rows_and_bonus_warning_copy():
+    panel = bd_panel()
+    assert WARNING in panel
+    for t in ("Playing", "Goals &amp; assists", "Clean sheet", "DefCon", "Bonus points",
+              "not counted", "Also not counted: cards, own goals."):
+        assert t in panel, t
+    assert "97% likely to play (437 of the last 450 minutes)" in panel
+    assert "0.1 xG + 0.1 xA per 90 over his last 6 games; LIV concede 0.9× the average to defenders" in panel
+    assert "22% chance: " in panel and "1.3× average" in panel
+    assert "60% chance of DEF 10+ / MID-FWD 12+ defensive actions: hit it in 4 of his last 6" in panel
+    assert "width:42.2%" in panel   # playing 1.9 / 4.5
+
+
+@needs_node
+def test_breakdown_hides_cs_row_for_fwd_and_defcon_row_for_gk():
+    fwd = bd_panel("FWD")
+    assert "Clean sheet</b>" not in fwd and "DefCon</b>" in fwd
+    gk = bd_panel("GK")
+    assert "DefCon</b>" not in gk and "Clean sheet</b>" in gk
+
+
+@needs_node
+def test_breakdown_fallback_copy_when_none():
+    panel = bd_panel(bd=False)
+    assert "Not enough data for a breakdown — using the simpler model." in panel
+    assert "Playing" not in panel and 'class="stack"' not in panel and WARNING not in panel
+
+
+@needs_node
+def test_breakdown_double_and_blank_gameweek():
+    assert "2 games" in bd_panel(bd={"n_fixtures": 2})
+    blank = bd_panel(bd={"n_fixtures": 0, "total": 0})
+    assert "No game this gameweek" in blank and "Playing" not in blank
+
+
+@needs_node
+def test_compare_strip_dash_when_fpl_form_null():
+    panel = bd_panel(compare={"fpl_form": None, "last5": 4.2})
+    assert "FPL's number (recent form)" in panel and "This site" in panel and "Last 5 avg" in panel
+    assert "<b>–</b>FPL's" in panel
+    assert "<b>6.7</b>FPL's" in bd_panel()
+
+
+@needs_node
+def test_defcon_paragraph_removed():
+    for pos in ("DEF", "GK"):
+        assert "Defenders need 10+" not in bd_panel(pos)

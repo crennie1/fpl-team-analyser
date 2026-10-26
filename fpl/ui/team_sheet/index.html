@@ -37,6 +37,15 @@ body{margin:0;overflow-x:hidden;font-family:-apple-system,Segoe UI,Roboto,sans-s
 .sec{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:#8e9bc4;margin:12px 0 6px}
 .fx{display:flex;gap:6px}.fx div{flex:1;border-radius:6px;padding:6px 2px;text-align:center;font-size:12px;font-weight:600;color:#111}
 .sb{display:flex;align-items:center;gap:8px;font-size:13px;margin:5px 0}.sb .t{width:96px}.sb .b{flex:1;height:8px;border-radius:4px;background:rgba(127,140,200,.2);overflow:hidden}.sb .b i{display:block;height:100%;background:#7b5cff}.sb .v{width:44px;text-align:right}
+.stack{display:flex;height:14px;border-radius:7px;overflow:hidden;margin:10px 0 4px}
+.s1{background:#5b6ea8}.s2{background:#ff9f5a}.s3{background:#38d39f}.s4{background:#7b5cff}
+.bonuswarn{background:#3a2a05;border:1px solid #ffb000;color:#ffd166;border-radius:8px;padding:6px 9px;margin:8px 0 2px;font-size:12px;font-weight:600}
+.brow{display:grid;grid-template-columns:12px 1fr auto;gap:8px;align-items:start;padding:7px 0;border-bottom:1px solid #22325c}
+.brow .dot{width:10px;height:10px;border-radius:3px;margin-top:3px}.brow .dash{border:1px dashed #ffb000}
+.brow b{display:block;font-size:13px}.why{color:#9fb0de;font-size:12px;line-height:1.4}.brow .pts{font-weight:800;font-size:15px}
+.brow.dim{opacity:.75}.amb{color:#ffd166}.two{color:#ffd166;font-weight:700;letter-spacing:0;text-transform:none}
+.mult{background:#14203f;border:1px solid #2c3f73;border-radius:8px;padding:8px;margin-top:10px;font-size:12px;color:#b4c0e6}
+.cmp{display:flex;gap:8px;margin-top:10px}.cmp div{flex:1;background:#14203f;border-radius:8px;padding:6px;text-align:center;font-size:11px;color:#9fb0de}.cmp b{display:block;font-size:15px;color:#e8ecff}
 .note{font-size:12px;color:#b4c0e6;line-height:1.45}
 .warn{background:#ffb000;color:#111;border-radius:8px;padding:6px 10px;font-size:13px;margin-bottom:10px}
 .swap{background:#2b1630;border:1px solid #ff5c7a;border-radius:10px;padding:10px;margin-top:8px}
@@ -189,6 +198,23 @@ function drawPlan(){
  sec.innerHTML=`<div class="plan"><h4>Your plan vs your real team</h4><div class="cols"><div><div class="grid"><span class="h"></span><span class="h">Real team</span><span class="h">Plan</span><span class="h">Diff</span>${rows}</div></div><div>${outs}<div class="cap2">Make these in the FPL app. This site never changes your real team.</div></div></div></div>`}
 function undoCard(id){send({type:'undo',original_id:id})}
 function setFt(v){send({type:'set_ft',ft:Math.max(0,Math.min(5,Number(v)||0))})}
+function breakdown(p){
+ const b=p.breakdown,cmpv=p.compare||{},gk=p.pos==='GK',n1=v=>v==null?'–':num(v);
+ const strip=`<div class="cmp"><div><b>${n1(p.xp)}</b>This site</div><div><b>${n1(cmpv.fpl_form)}</b>FPL's number (recent form)</div><div><b>${n1(cmpv.last5)}</b>Last 5 avg</div></div>`;
+ if(!b)return `<div class="sec">Why is his xP ${n1(p.xp)}?</div><div class="note">Not enough data for a breakdown — using the simpler model.</div>${strip}`;
+ const head=`<div class="sec">Why is his xP ${n1(b.total)}?${b.n_fixtures===2?' <span class="two">2 games</span>':''}</div>`;
+ if(!b.n_fixtures)return head+`<div class="note">No game this gameweek</div>${strip}`;
+ const pct=v=>Math.round(v*100)+'%',opp=esc(b.opp_short||'the opponent'),pl=POS_PLURAL[p.pos]||'players';
+ const rows=[['s1','Playing',b.app_pts,`${pct(b.start_prob)} likely to play (${esc(Math.round(b.minutes_last5))} of the last 450 minutes)`],
+  ['s2','Goals &amp; assists',b.att_pts,`${num(b.xg90)} xG + ${num(b.xa90)} xA per 90 over his last 6 games; ${opp} concede ${num(b.opp_xg_ratio)}× the average to ${pl}`]];
+ if(p.pos!=='FWD')rows.push(['s3','Clean sheet',b.cs_pts,`${pct(b.cs_chance)} chance: ${p.club?esc(p.club)+' concede ':'conceding '}${num(b.own_xgc_pm)} xG a game, ${opp}'s attack is ${num(b.opp_atk_ratio)}× average`]);
+ if(!gk)rows.push(['s4','DefCon',b.defcon_pts,`${pct(b.defcon_chance)} chance of DEF 10+ / MID-FWD 12+ defensive actions: hit it in ${esc(b.defcon_hits)} of his last ${esc(b.defcon_apps)}`]);
+ const tot=b.total>0?b.total:0;
+ return head+`<div class="bonuswarn">⚠ Bonus points not included — top attackers often earn 1–2 more a game than this shows.</div>
+ <div class="stack">${rows.map(r=>`<div class="${r[0]}" style="width:${tot?(Math.max(0,r[2])/tot*100).toFixed(1):0}%"></div>`).join('')}</div>
+ ${rows.map(r=>`<div class="brow"><div class="dot ${r[0]}"></div><div><b>${r[1]}</b><span class="why">${r[3]}</span></div><div class="pts">${num(r[2])}</div></div>`).join('')}
+ <div class="brow dim"><div class="dot dash"></div><div><b class="amb">Bonus points</b><span class="why">Not estimated by this model yet</span></div><div class="pts amb">not counted</div></div>
+ <div class="mult">Also not counted: cards, own goals.</div>${strip}`}
 function draw(){
  document.querySelector('.wrap').appendChild(document.getElementById('panel'));
  document.getElementById('grades').innerHTML=Object.entries(DATA.grades).map(([a,g])=>`<div class="g g${esc(g)}"><b>${esc(g)}${gradeArrow(a,g)}</b><span>${esc(a)}</span></div>`).join('')+`<div class="proj"><b>${num(DATA.projected)} pts</b><span>projected · average manager ${num(DATA.average)}</span></div>`;
@@ -201,7 +227,7 @@ function draw(){
  const p=sel,gk=p.pos==='GK',l6=p.last6||{};
  const sb=(t,v,m,s)=>`<div class="sb"><span class="t">${t}</span><span class="b"><i style="width:${v==null?0:Math.min(100,v/m*100)}%"></i></span><span class="v">${s}</span></div>`;
  const chanceLbl=gk?'Clean sheet chance':'DefCon chance';
- const expl=gk?`<b>Clean sheet chance</b> = how likely his team keeps a clean sheet this week, which earns a goalkeeper 4 points. Goalkeepers have no DefCon bonus.`:`<b>DefCon chance</b> = how likely he earns FPL's 2 bonus points for defensive work this week. Defenders need 10+ clearances, blocks, interceptions and tackles in a match; midfielders and forwards need 12+, with ball recoveries also counting. Based on how often he hit it in his last 6 games, adjusted for the opponent.`;
+ const bdHtml=breakdown(p);
  panel.innerHTML=`<button class="close" onclick="closeP()">×</button>
  <h2>${esc(p.full_name)}${p.captain?' (C)':''}</h2><div class="meta">${esc(p.pos)} · ${esc(p.club)} · ${p.price==null?'–':'£'+num(p.price)+'m'} · ${p.owned==null?'–':esc(p.owned)+'% owned'}</div>
  ${DATA.error?`<div class="warn">${esc(DATA.error)}</div>`:''}
@@ -209,7 +235,7 @@ function draw(){
  <button class="rep" onclick="openReplace()">Replace</button>
  ${sellBlock(p)}
  <div class="kp" style="margin-top:12px"><div><b>${num(p.xp)}</b><span>xP next GW</span></div><div><b>${num(p.xp3)}</b><span>xP next 3</span></div><div><b>${p.bar_pct==null?'–':p.bar_pct+'%'}</b><span>${chanceLbl}</span></div></div>
- <div class="note">${expl}</div>
+ ${bdHtml}
  <div class="sec">Next fixtures</div><div class="fx">${p.fixtures.map(f=>`<div class="d${fdr(f)}">${oppTxt(f)}</div>`).join('')||'<span class="note">No fixtures scheduled</span>'}</div>
  <div class="sec">Last 6 gameweeks</div>${sb('Form (pts/gm)',l6.form,10,num(l6.form))}${sb('xG',l6.xg,7,num(l6.xg))}${sb('xA',l6.xa,7,num(l6.xa))}${gk?'':sb('DefCon hits',l6.defcon_pct,100,l6.defcon_apps?`${l6.defcon_hits} of ${l6.defcon_apps}`:'–')}
  <div class="sec">Opponent weakness</div><div class="note">${p.weakness?esc(p.weakness)+'.':'Not enough data yet.'}</div>
