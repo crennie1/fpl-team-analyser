@@ -56,7 +56,7 @@ def test_cards_keys_and_initials(v2db):
     assert set(cards[0]) == {"id", "initials", "name", "full_name", "pos", "club", "price", "owned",
                              "xp", "xp3", "colour", "flag", "starter", "captain", "bar_label",
                              "bar_pct", "fixtures", "last6", "weakness", "set_pieces", "sell",
-                             "breakdown", "compare"}
+                             "breakdown", "compare", "xp_source", "site_source"}
     c = cards[0]
     assert (c["full_name"], c["price"], c["owned"], c["club"]) == ("Erling Haaland", 6.5, 12.5, "T1")
     assert cards[1]["full_name"] == "Salah"
@@ -313,6 +313,25 @@ def test_card_breakdown_none_when_source_model(v2db):
     nxt = v2db.execute("SELECT xp_v2_next FROM v_xp2_next WHERE player_id = 2").fetchone()[0]
     assert b["total"] == nxt
     assert abs(b["app_pts"] + b["att_pts"] + b["cs_pts"] + b["defcon_pts"] - b["total"]) < 1e-9
+
+
+def test_card_xp_source_is_the_one_gameweek_part_and_site_source_from_meta(v2db):
+    setup_league(v2db)
+    add(v2db, 1, "MID", 1, source="model")
+    add(v2db, 2, "MID", 1, source="v2/model")
+    add(v2db, 3, "MID", 2, source="last5_avg/v2")
+    refresh(v2db)
+    views = analysis(view(1, "A", "MID"), view(2, "B", "MID"), view(3, "C", "MID"))
+    for meta, site in ((None, "v2"), ("fpl_ep", "v2"), ("model", "model"), ("last5_avg", "last5_avg")):
+        v2db.execute("DELETE FROM meta WHERE key IN ('forecast_source', 'forecast_source_1gw')")
+        if meta:
+            v2db.execute("INSERT INTO meta VALUES ('forecast_source_1gw', ?)", (meta,))
+        cards = player_cards(v2db, views, [])
+        assert [c["xp_source"] for c in cards] == ["model", "v2", "last5_avg"]
+        assert {c["site_source"] for c in cards} == {site}, meta
+    v2db.execute("DELETE FROM meta WHERE key = 'forecast_source_1gw'")
+    v2db.execute("INSERT INTO meta VALUES ('forecast_source', 'model')")    # old single key
+    assert player_cards(v2db, views, [])[0]["site_source"] == "model"
 
 
 def test_card_compare_fpl_form_none_when_snapshot_stale(v2db):

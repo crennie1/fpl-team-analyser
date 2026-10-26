@@ -198,17 +198,27 @@ function drawPlan(){
  sec.innerHTML=`<div class="plan"><h4>Your plan vs your real team</h4><div class="cols"><div><div class="grid"><span class="h"></span><span class="h">Real team</span><span class="h">Plan</span><span class="h">Diff</span>${rows}</div></div><div>${outs}<div class="cap2">Make these in the FPL app. This site never changes your real team.</div></div></div></div>`}
 function undoCard(id){send({type:'undo',original_id:id})}
 function setFt(v){send({type:'set_ft',ft:Math.max(0,Math.min(5,Number(v)||0))})}
+// Why there is no breakdown: the source used for his next-GW xP vs the one the backtest chose.
+const SRC_NAME={model:'v1 model',last5_avg:'last-5 average'};
+function noBreakdown(p){
+ const used=p.xp_source||'model',site=p.site_source||'v2';
+ if(used==='v2')return 'No breakdown for him yet.';   // v2 number, but no breakdown row cached
+ if(used===site&&SRC_NAME[used])return `Using ${SRC_NAME[used]} (chosen by the backtest).`;
+ if(site==='last5_avg'&&used==='model')return 'No last-5 average for him yet — using v1 model.';
+ return 'Not enough data for a breakdown — using the simpler model.'}
 function breakdown(p){
  const b=p.breakdown,cmpv=p.compare||{},gk=p.pos==='GK',n1=v=>v==null?'–':num(v);
  const strip=`<div class="cmp"><div><b>${n1(p.xp)}</b>This site</div><div><b>${n1(cmpv.fpl_form)}</b>FPL's number (recent form)</div><div><b>${n1(cmpv.last5)}</b>Last 5 avg</div></div>`;
- if(!b)return `<div class="sec">Why is his xP ${n1(p.xp)}?</div><div class="note">Not enough data for a breakdown — using the simpler model.</div>${strip}`;
+ if(!b)return `<div class="sec">Why is his xP ${n1(p.xp)}?</div><div class="note">${noBreakdown(p)}</div>${strip}`;
  const head=`<div class="sec">Why is his xP ${n1(b.total)}?${b.n_fixtures===2?' <span class="two">2 games</span>':''}</div>`;
  if(!b.n_fixtures)return head+`<div class="note">No game this gameweek</div>${strip}`;
- const pct=v=>Math.round(v*100)+'%',opp=esc(b.opp_short||'the opponent'),pl=POS_PLURAL[p.pos]||'players';
+ // Double gameweek: points are summed over both games, but the inputs quoted are the first game's.
+ const fg=b.n_fixtures===2?'first game: ':'';
+ const pct=v=>Math.round(v*100)+'%',opp=esc(String(b.opp_short||'the opponent').split(', ')[0]),pl=POS_PLURAL[p.pos]||'players';
  const rows=[['s1','Playing',b.app_pts,`${pct(b.start_prob)} likely to play (${esc(Math.round(b.minutes_last5))} of the last 450 minutes)`],
-  ['s2','Goals &amp; assists',b.att_pts,`${num(b.xg90,2)} xG + ${num(b.xa90,2)} xA per 90 over his last 6 games; ${opp} concede ${num(b.opp_xg_ratio)}× the average to ${pl}`]];
- if(p.pos!=='FWD')rows.push(['s3','Clean sheet',b.cs_pts,`${pct(b.cs_chance)} chance: ${p.club?esc(p.club)+' concede ':'conceding '}${num(b.own_xgc_pm)} xG a game, ${opp}'s attack is ${num(b.opp_atk_ratio)}× average`]);
- if(!gk)rows.push(['s4','DefCon',b.defcon_pts,`${pct(b.defcon_chance)} chance of ${p.pos==='DEF'?10:12}+ defensive actions: hit it in ${esc(b.defcon_hits)} of his last ${esc(b.defcon_apps)}`]);
+  ['s2','Goals &amp; assists',b.att_pts,`${num(b.xg90,2)} xG + ${num(b.xa90,2)} xA per 90 over his last 6 games; ${fg}${opp} concede ${num(b.opp_xg_ratio)}× the average to ${pl}`]];
+ if(p.pos!=='FWD')rows.push(['s3','Clean sheet',b.cs_pts,`${fg}${pct(b.cs_chance)} chance: ${p.club?esc(p.club)+' concede ':'conceding '}${num(b.own_xgc_pm)} xG a game, ${opp}'s attack is ${num(b.opp_atk_ratio)}× average`]);
+ if(!gk)rows.push(['s4','DefCon',b.defcon_pts,`${fg}${pct(b.defcon_chance)} chance of ${p.pos==='DEF'?10:12}+ defensive actions: hit it in ${esc(b.defcon_hits)} of his last ${esc(b.defcon_apps)}`]);
  const tot=b.total>0?b.total:0;
  return head+`<div class="bonuswarn">⚠ Bonus points not included — top attackers often earn 1–2 more a game than this shows.</div>
  <div class="stack">${rows.map(r=>`<div class="${r[0]}" style="width:${tot?(Math.max(0,r[2])/tot*100).toFixed(1):0}%"></div>`).join('')}</div>

@@ -104,6 +104,9 @@ def player_cards(conn, analysis: Analysis, suggestions: list, weakness=None,
     xp2_breakdown_cache) as a dict plus "source": "v2", only
     when his xp_source starts with 'v2' (the next-gameweek number is v2's, so the parts add up
     to it); otherwise None.
+    card["xp_source"]: the source used for his next-gameweek xP ('v2', 'model' or 'last5_avg';
+    the 1-gameweek part of v_xp_next.xp_source). card["site_source"]: the 1-gameweek source
+    the backtest chose for the site (meta forecast_source_1gw, read as v_xp_next does).
     card["compare"]: {"fpl_form": FPL's ep_next from his latest snapshot, only if that snapshot
     is for next_gw, else None; "last5": the site's last5_avg number for next_gw (mean of his
     last 5 gameweek totals, v_last5_next, x his fixtures in next_gw), None without history}.
@@ -129,13 +132,25 @@ def _in_list(ids):
     return "(" + ",".join("?" * len(ids)) + ")"
 
 
+def _site_source_1gw(conn):
+    """The 1-gameweek source the backtest chose for the site, as v_xp_next reads it:
+    'model' or 'last5_avg', else 'v2' (also for an old 'fpl_ep' or a missing setting)."""
+    s = _meta(conn, "forecast_source_1gw") or _meta(conn, "forecast_source")
+    return s if s in ("model", "last5_avg") else "v2"
+
+
 def _add_breakdowns(conn, cards):
     """Fill card["breakdown"] for v2-sourced cards from one query on xp2_breakdown_cache
     (copy of v_xp2_breakdown_cached, made with xp_next_cache from the same v2 rows, so the
-    parts add up to the cached xp_next)."""
+    parts add up to the cached xp_next). Also sets card["xp_source"] (the source used for
+    his next-gameweek xP) and card["site_source"] (the one the backtest chose), so the panel
+    can say why there is no breakdown."""
+    site = _site_source_1gw(conn)
     ids = []
     for c in cards:
-        if (c.pop("_xp_source") or "").startswith("v2"):
+        c["xp_source"] = (c.pop("_xp_source") or "model").split("/")[0]
+        c["site_source"] = site
+        if c["xp_source"] == "v2":
             ids.append(c["id"])
     rows = {}
     if ids:

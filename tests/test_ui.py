@@ -530,8 +530,37 @@ def test_breakdown_fallback_copy_when_none():
 
 
 @needs_node
+def test_no_breakdown_copy_follows_the_source_used():
+    fallback = "Not enough data for a breakdown — using the simpler model."
+    # v2 is the site's pick but had no value for him: the fallback sentence
+    p = bd_panel(bd=False, xp_source="model", site_source="v2")
+    assert fallback in p and "chosen by the backtest" not in p
+    # the backtest picked another source for everyone: say which, not "not enough data"
+    p = bd_panel(bd=False, xp_source="model", site_source="model")
+    assert "Using v1 model (chosen by the backtest)." in p and fallback not in p
+    p = bd_panel(bd=False, xp_source="last5_avg", site_source="last5_avg")
+    assert "Using last-5 average (chosen by the backtest)." in p and fallback not in p
+    # last-5 average picked, but he has no history: he falls back to v1
+    p = bd_panel(bd=False, xp_source="model", site_source="last5_avg")
+    assert "No last-5 average for him yet — using v1 model." in p and fallback not in p
+    assert "chosen by the backtest" not in p
+    # v2 used, but its breakdown row is missing (cache older than the player)
+    p = bd_panel(bd=False, xp_source="v2", site_source="v2")
+    assert "No breakdown for him yet." in p and fallback not in p
+
+
+@needs_node
 def test_breakdown_double_and_blank_gameweek():
     assert "2 games" in bd_panel(bd={"n_fixtures": 2})
+    # points are summed over both games; the reasons quote the first game's inputs, so say so
+    dgw = bd_panel(bd={"n_fixtures": 2, "opp_short": "LIV, BOU"})
+    assert "per 90 over his last 6 games; first game: LIV concede 0.9× the average to defenders" in dgw
+    assert "first game: 22% chance: ARS concede 1.1 xG a game, LIV's attack is 1.3× average" in dgw
+    assert "first game: 60% chance of 10+ defensive actions" in dgw
+    assert "97% likely to play" in dgw and "first game: 97%" not in dgw   # not opponent-specific
+    assert "BOU" not in dgw
+    single = bd_panel()
+    assert "first game:" not in single
     blank = bd_panel(bd={"n_fixtures": 0, "total": 0})
     assert "No game this gameweek" in blank and "Playing" not in blank
     assert WARNING not in blank and 'class="stack"' not in blank
