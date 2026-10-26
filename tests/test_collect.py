@@ -277,3 +277,35 @@ def test_ep_pre_compares_instants_not_strings(tmp_db, fake_client):
 def test_ep_pre_null_when_no_deadline_known(tmp_db, fake_client):
     assert _ep_pre_after_recollect(
         tmp_db, fake_client, "2026-08-21T10:50:00+00:00", drop_deadline=True) is None
+
+
+
+def _collect_gw2_at(tmp_db, fake_client, monkeypatch, collected_at, ep):
+    """Collect at collected_at with every player's ep_next set to ep; return GW2 (collected_at, ep_next) set."""
+    boot = fake_client.bootstrap()
+    for e in boot["elements"]:
+        e["ep_next"] = str(ep)
+    fake_client.bootstrap = lambda: boot
+    monkeypatch.setattr(collect, "_now", lambda: collected_at)
+    collect.run(tmp_db, fake_client, "2026-27")
+    return {tuple(r) for r in tmp_db.execute(
+        "select collected_at, ep_next from player_snapshot where gw = 2")}
+
+
+def test_snapshot_before_deadline_not_replaced_after_deadline(tmp_db, fake_client, monkeypatch):
+    # GW2 deadline is 2026-08-28T17:30Z; FPL still lists GW2 as next on the later run
+    before = "2026-08-28T10:50:00+00:00"
+    _collect_gw2_at(tmp_db, fake_client, monkeypatch, before, 4.0)
+    rows = _collect_gw2_at(tmp_db, fake_client, monkeypatch, "2026-08-28T17:45:00+00:00", 9.0)
+    assert rows == {(before, 4.0)}
+
+
+def test_snapshot_before_deadline_replaced_by_later_pre_deadline_run(tmp_db, fake_client, monkeypatch):
+    _collect_gw2_at(tmp_db, fake_client, monkeypatch, "2026-08-27T10:50:00+00:00", 4.0)
+    later = "2026-08-28T17:29:00+00:00"
+    assert _collect_gw2_at(tmp_db, fake_client, monkeypatch, later, 9.0) == {(later, 9.0)}
+
+
+def test_snapshot_written_after_deadline_when_no_earlier_row(tmp_db, fake_client, monkeypatch):
+    late = "2026-08-28T17:45:00+00:00"
+    assert _collect_gw2_at(tmp_db, fake_client, monkeypatch, late, 9.0) == {(late, 9.0)}

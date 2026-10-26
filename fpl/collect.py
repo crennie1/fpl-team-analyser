@@ -107,7 +107,23 @@ def _store_deadlines(conn, season, boot):
 def _snapshot(conn, season, boot, next_gw, collected_at):
     if next_gw is None:
         return
+    # A run after the deadline (FPL can still list that gameweek as next) must not replace a
+    # row taken before it: only pre-deadline predictions count in the fair check.
+    row = conn.execute(
+        "SELECT deadline_time FROM gw_deadline WHERE season = ? AND gw = ?", (season, next_gw)).fetchone()
+    deadline = _parse_utc(row[0]) if row else None
+    keep = set()
+    taken_now = _parse_utc(collected_at)
+    if deadline and taken_now and taken_now >= deadline:
+        for r in conn.execute(
+                "SELECT player_id, collected_at FROM player_snapshot WHERE season = ? AND gw = ?",
+                (season, next_gw)):
+            taken = _parse_utc(r[1])
+            if taken and taken < deadline:
+                keep.add(r[0])
     for e in boot["elements"]:
+        if e["id"] in keep:
+            continue
         conn.execute(
             "INSERT OR REPLACE INTO player_snapshot (season, gw, player_id, collected_at, "
             "status, chance_next, ep_next, now_cost, selected_by_percent, news) "
