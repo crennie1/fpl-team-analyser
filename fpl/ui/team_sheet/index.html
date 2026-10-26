@@ -206,9 +206,9 @@ function breakdown(p){
  if(!b.n_fixtures)return head+`<div class="note">No game this gameweek</div>${strip}`;
  const pct=v=>Math.round(v*100)+'%',opp=esc(b.opp_short||'the opponent'),pl=POS_PLURAL[p.pos]||'players';
  const rows=[['s1','Playing',b.app_pts,`${pct(b.start_prob)} likely to play (${esc(Math.round(b.minutes_last5))} of the last 450 minutes)`],
-  ['s2','Goals &amp; assists',b.att_pts,`${num(b.xg90)} xG + ${num(b.xa90)} xA per 90 over his last 6 games; ${opp} concede ${num(b.opp_xg_ratio)}× the average to ${pl}`]];
+  ['s2','Goals &amp; assists',b.att_pts,`${num(b.xg90,2)} xG + ${num(b.xa90,2)} xA per 90 over his last 6 games; ${opp} concede ${num(b.opp_xg_ratio)}× the average to ${pl}`]];
  if(p.pos!=='FWD')rows.push(['s3','Clean sheet',b.cs_pts,`${pct(b.cs_chance)} chance: ${p.club?esc(p.club)+' concede ':'conceding '}${num(b.own_xgc_pm)} xG a game, ${opp}'s attack is ${num(b.opp_atk_ratio)}× average`]);
- if(!gk)rows.push(['s4','DefCon',b.defcon_pts,`${pct(b.defcon_chance)} chance of DEF 10+ / MID-FWD 12+ defensive actions: hit it in ${esc(b.defcon_hits)} of his last ${esc(b.defcon_apps)}`]);
+ if(!gk)rows.push(['s4','DefCon',b.defcon_pts,`${pct(b.defcon_chance)} chance of ${p.pos==='DEF'?10:12}+ defensive actions: hit it in ${esc(b.defcon_hits)} of his last ${esc(b.defcon_apps)}`]);
  const tot=b.total>0?b.total:0;
  return head+`<div class="bonuswarn">⚠ Bonus points not included — top attackers often earn 1–2 more a game than this shows.</div>
  <div class="stack">${rows.map(r=>`<div class="${r[0]}" style="width:${tot?(Math.max(0,r[2])/tot*100).toFixed(1):0}%"></div>`).join('')}</div>

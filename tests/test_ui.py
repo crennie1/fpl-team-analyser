@@ -507,9 +507,10 @@ def test_breakdown_rows_and_bonus_warning_copy():
               "not counted", "Also not counted: cards, own goals."):
         assert t in panel, t
     assert "97% likely to play (437 of the last 450 minutes)" in panel
-    assert "0.1 xG + 0.1 xA per 90 over his last 6 games; LIV concede 0.9× the average to defenders" in panel
+    assert "0.07 xG + 0.05 xA per 90 over his last 6 games; LIV concede 0.9× the average to defenders" in panel
     assert "22% chance: " in panel and "1.3× average" in panel
-    assert "60% chance of DEF 10+ / MID-FWD 12+ defensive actions: hit it in 4 of his last 6" in panel
+    assert "60% chance of 10+ defensive actions: hit it in 4 of his last 6" in panel
+    assert "60% chance of 12+ defensive actions" in bd_panel("MID") and "MID-FWD" not in panel
     assert "width:42.2%" in panel   # playing 1.9 / 4.5
 
 
@@ -533,6 +534,7 @@ def test_breakdown_double_and_blank_gameweek():
     assert "2 games" in bd_panel(bd={"n_fixtures": 2})
     blank = bd_panel(bd={"n_fixtures": 0, "total": 0})
     assert "No game this gameweek" in blank and "Playing" not in blank
+    assert WARNING not in blank and 'class="stack"' not in blank
 
 
 @needs_node
@@ -547,3 +549,16 @@ def test_compare_strip_dash_when_fpl_form_null():
 def test_defcon_paragraph_removed():
     for pos in ("DEF", "GK"):
         assert "Defenders need 10+" not in bd_panel(pos)
+
+
+@needs_node
+def test_breakdown_escapes_names():
+    panel = bd_panel(club="<b>X</b>", bd={"opp_short": "<b>Y</b>"})
+    assert "<b>Y</b>" not in panel and "<b>X</b>" not in panel and "&lt;b&gt;Y" in panel
+
+
+@needs_node
+def test_breakdown_parts_sum_to_headline():
+    panel = bd_panel()
+    parts = [float(x) for x in re.findall(r'<div class="pts">([\d.]+)</div>', panel)]
+    assert len(parts) == 4 and abs(sum(parts) - 4.5) <= 0.1
