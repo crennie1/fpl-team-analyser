@@ -49,6 +49,17 @@ Keys in use:
 | `forecast_source_1gw` | Source for the next-gameweek number: `fpl_ep`, `v2` or `model`. Chosen by the 1-gameweek backtest. Currently `fpl_ep`. |
 | `forecast_source_3gw` | Source for the next-3-gameweeks number, chosen by the 3-gameweek backtest. Currently `fpl_ep`. |
 
+### `gw_deadline`
+When each gameweek's team-selection deadline falls. Refreshed from FPL on every collect.
+
+| Column | Meaning |
+|---|---|
+| `season` | Season. |
+| `gw` | Gameweek. |
+| `deadline_time` | Deadline, UTC, exactly as FPL gives it (for example `2026-10-23T17:30:00Z`). |
+
+Used to decide which FPL predictions are honest: see `player_gw.ep_pre`.
+
 ### `team`
 Premier League clubs, per season.
 
@@ -116,9 +127,11 @@ What a player did in one match. A player in a double gameweek has two rows for t
 | `was_home` | 1 if his team was at home, else 0. |
 | `opponent_team` | The opposing club (`team_id`). |
 | `fdr` | Difficulty of the match **from the player's side**. |
-| `ep_pre` | FPL's expected-points prediction made before the match. Only the past season has this. Empty (NULL) when missing. |
+| `ep_pre` | FPL's expected-points prediction made before the match. Empty (NULL) when missing, or when it cannot be shown to be from before the deadline (see below). |
 
 About `ep_pre`: in the past-season archive some gameweeks list 0 for every player. A prediction of zero for everyone is not real, it is missing data. So those whole gameweeks are stored as NULL. A single player with 0 in a gameweek that has other predictions stays 0, because that is a real prediction.
+
+A live gameweek's `ep_pre` is kept only if the snapshot it came from was collected before that gameweek's deadline (`gw_deadline`). A snapshot taken at or after the deadline, or a gameweek with no known deadline, gives NULL. The reason: a late prediction may already know the results, so it is not a fair forecast.
 
 ### `player_gw_stats`
 The richer stats, one row per player per gameweek (a double gameweek is already summed). Used by forecast v2 and the player cards.

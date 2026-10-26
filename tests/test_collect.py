@@ -53,7 +53,7 @@ def test_snapshot_ep_copied_to_player_gw_ep_pre(tmp_db, fake_client):
     tmp_db.execute("delete from player_gw")
     tmp_db.execute("delete from player_gw_stats")
     tmp_db.execute(
-        "insert into player_snapshot (season, gw, player_id, collected_at, status, chance_next, ep_next, now_cost, selected_by_percent) values ('2026-27',1,?, 'x','a',100,7.5,100,1.0)", (snap[0]["player_id"],))
+        "insert into player_snapshot (season, gw, player_id, collected_at, status, chance_next, ep_next, now_cost, selected_by_percent) values ('2026-27',1,?, '2026-08-21T10:50:00+00:00','a',100,7.5,100,1.0)", (snap[0]["player_id"],))
     collect.run(tmp_db, fake_client, "2026-27")
     row = tmp_db.execute(
         "select ep_pre from player_gw where player_id = ?", (snap[0]["player_id"],)).fetchone()
@@ -237,3 +237,43 @@ def test_workflow_commits_only_when_should_commit():
     assert "--should-commit" in wf
     commit = wf.split("- name: Commit changes")[1]
     assert "steps.gate.outputs.commit == 'true'" in commit
+
+
+def _ep_pre_after_recollect(tmp_db, fake_client, collected_at, drop_deadline=False):
+    """Collect, plant a GW1 snapshot (ep_next 7.5) at collected_at, reload GW1, return its ep_pre."""
+    collect.run(tmp_db, fake_client, "2026-27")
+    pid = tmp_db.execute("select player_id from player_snapshot where gw = 2").fetchone()[0]
+    tmp_db.execute("delete from player_gw")
+    tmp_db.execute("delete from player_gw_stats")
+    if drop_deadline:
+        tmp_db.execute("delete from gw_deadline where gw = 1")
+    tmp_db.execute(
+        "insert into player_snapshot (season, gw, player_id, collected_at, status, chance_next, "
+        "ep_next, now_cost, selected_by_percent) values ('2026-27',1,?,?,'a',100,7.5,100,1.0)",
+        (pid, collected_at))
+    collect._load_live(tmp_db, fake_client, "2026-27", 1)
+    return tmp_db.execute("select ep_pre from player_gw where player_id = ?", (pid,)).fetchone()[0]
+
+
+def test_collect_stores_every_gameweek_deadline(tmp_db, fake_client):
+    collect.run(tmp_db, fake_client, "2026-27")
+    rows = {(r["season"], r["gw"]): r["deadline_time"] for r in tmp_db.execute("select * from gw_deadline")}
+    assert rows == {("2026-27", 1): "2026-08-21T17:30:00Z", ("2026-27", 2): "2026-08-28T17:30:00Z"}
+
+
+def test_ep_pre_kept_when_snapshot_before_deadline(tmp_db, fake_client):
+    assert _ep_pre_after_recollect(tmp_db, fake_client, "2026-08-21T10:50:00+00:00") == 7.5
+
+
+def test_ep_pre_null_when_snapshot_after_deadline(tmp_db, fake_client):
+    assert _ep_pre_after_recollect(tmp_db, fake_client, "2026-08-21T17:31:00+00:00") is None
+
+
+def test_ep_pre_compares_instants_not_strings(tmp_db, fake_client):
+    # 18:00+02:00 is 16:00 UTC, before the 17:30Z deadline, though the string sorts after it
+    assert _ep_pre_after_recollect(tmp_db, fake_client, "2026-08-21T18:00:00+02:00") == 7.5
+
+
+def test_ep_pre_null_when_no_deadline_known(tmp_db, fake_client):
+    assert _ep_pre_after_recollect(
+        tmp_db, fake_client, "2026-08-21T10:50:00+00:00", drop_deadline=True) is None

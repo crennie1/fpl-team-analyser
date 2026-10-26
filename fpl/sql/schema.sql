@@ -98,6 +98,14 @@ CREATE TABLE IF NOT EXISTS meta (
     value TEXT
 );
 
+-- Every gameweek's deadline (UTC, verbatim from FPL), refreshed on each collect.
+CREATE TABLE IF NOT EXISTS gw_deadline (
+    season TEXT,
+    gw INTEGER,
+    deadline_time TEXT,
+    PRIMARY KEY (season, gw)
+);
+
 -- Speeds up per-player lookups used by the forecast views.
 CREATE INDEX IF NOT EXISTS idx_player_gw_player ON player_gw (season, player_id, gw);
 CREATE INDEX IF NOT EXISTS idx_fixture_gw ON fixture (season, gw);

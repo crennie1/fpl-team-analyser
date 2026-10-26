@@ -85,6 +85,25 @@ def _flt(v):
     return None if v in (None, "") else float(v)
 
 
+def _parse_utc(text):
+    """Parse an ISO-8601 time ("...Z" or with offset) to an aware datetime; None if missing or bad."""
+    if not text:
+        return None
+    try:
+        t = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+
+
+def _store_deadlines(conn, season, boot):
+    for e in boot["events"]:
+        if e.get("deadline_time"):
+            conn.execute(
+                "INSERT OR REPLACE INTO gw_deadline (season, gw, deadline_time) VALUES (?,?,?)",
+                (season, e["id"], e["deadline_time"]))
+
+
 def _snapshot(conn, season, boot, next_gw, collected_at):
     if next_gw is None:
         return
@@ -107,12 +126,17 @@ def _load_live(conn, client, season, gw):
         for r in conn.execute(
             "SELECT * FROM fixture WHERE season = ? AND gw = ?", (season, gw))
     }
-    ep = {
-        r["player_id"]: r["ep_next"]
-        for r in conn.execute(
-            "SELECT player_id, ep_next FROM player_snapshot WHERE season = ? AND gw = ?",
-            (season, gw))
-    }
+    # FPL's prediction counts only if it was collected before the deadline; later ones saw the matches.
+    row = conn.execute(
+        "SELECT deadline_time FROM gw_deadline WHERE season = ? AND gw = ?", (season, gw)).fetchone()
+    deadline = _parse_utc(row[0]) if row else None
+    ep = {}
+    for r in conn.execute(
+            "SELECT player_id, ep_next, collected_at FROM player_snapshot WHERE season = ? AND gw = ?",
+            (season, gw)):
+        taken = _parse_utc(r["collected_at"])
+        if deadline and taken and taken < deadline:
+            ep[r["player_id"]] = r["ep_next"]
     team_of = {
         r["player_id"]: r["team_id"]
         for r in conn.execute("SELECT player_id, team_id FROM player WHERE season = ?", (season,))
@@ -183,6 +207,7 @@ def run(conn, client, season=None):
     next_gw = next_event["id"] if next_event else None
 
     _upsert_static(conn, season, boot, fixtures)
+    _store_deadlines(conn, season, boot)
     _snapshot(conn, season, boot, next_gw, collected_at)
     _set_pieces(conn, season, boot, collected_at)
 
