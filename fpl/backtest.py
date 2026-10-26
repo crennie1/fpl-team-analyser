@@ -7,7 +7,8 @@ gameweek) by mean absolute error:
   model      v_xp.xp_model at as_of_gw = gw (uses only earlier gameweeks)
   v2         v_xp2.xp_v2 at as_of_gw = gw (forecast v2; calib_att fitted on
              meta.fit_season by fpl.fit, so scoring meta.backtest_season is out of sample)
-  last5_avg  mean of the player's last 5 gameweek totals before gw
+  last5_avg  mean of the player's last 5 gameweek totals before gw (gameweeks with a
+             total only) x number of fixtures he has in gw (0 blank, 2 double)
 
 A row is scored only if the player was in a squad (minutes > 0 or v_player_form.start_prob
 > 0) and all three predictions exist, so every method is judged on identical rows. Rows do
@@ -21,7 +22,7 @@ summed over g..g+2 using only gameweeks before g:
 
   model      sum of v_xp.xp_model over g..g+2 at as_of_gw = g
   v2         sum of v_xp2.xp_v2 over g..g+2 at as_of_gw = g
-  last5_avg  last-5 average x number of fixtures in g..g+2
+  last5_avg  last-5 average x number of fixtures in g..g+2 (same last-5 rule)
 
 choose_source picks the app's source per horizon (meta.forecast_source_1gw / _3gw, and
 meta.forecast_source = the 1-gameweek choice for compatibility): the lowest MAE of model, v2
@@ -99,17 +100,27 @@ def _score_one_gw(conn, season: str, from_gw: int, with_fpl: bool = False) -> di
         GROUP BY player_id, as_of_gw
     """, (season, from_gw))
     conn.execute("CREATE INDEX temp.bt_v2_i ON bt_v2 (player_id, gw)")
-    # last5_avg: mean of up to 5 most recent earlier gameweek totals;
-    # players with no earlier gameweek have no baseline and are dropped.
+    conn.execute("""
+        CREATE TEMP TABLE bt_fx AS
+        SELECT player_id, as_of_gw AS gw, SUM(fixture_id IS NOT NULL) AS fixtures1
+        FROM v_xp_fixture
+        WHERE season = ? AND as_of_gw >= ? AND gw = as_of_gw
+        GROUP BY player_id, as_of_gw
+    """, (season, from_gw))
+    conn.execute("CREATE INDEX temp.bt_fx_i ON bt_fx (player_id, gw)")
+    # last5_avg: mean of up to 5 most recent earlier gameweek totals (gameweeks with a
+    # total) x his fixtures in gw; players with no earlier gameweek have no baseline and
+    # are dropped.
     conn.execute("""
         CREATE TEMP TABLE bt_scored AS
         SELECT a.player_id, a.gw, a.actual, x.xp_model AS model, a.ep_pre AS fpl_ep,
                v.xp1 AS v2,
-               (SELECT AVG(p.actual) FROM (
+               f.fixtures1 * (SELECT AVG(p.actual) FROM (
                     SELECT actual FROM bt_actual
-                    WHERE player_id = a.player_id AND gw < a.gw
+                    WHERE player_id = a.player_id AND gw < a.gw AND actual IS NOT NULL
                     ORDER BY gw DESC LIMIT 5) AS p) AS last5_avg
         FROM bt_actual AS a
+        JOIN bt_fx AS f ON f.player_id = a.player_id AND f.gw = a.gw
         JOIN bt_xp AS x ON x.player_id = a.player_id AND x.gw = a.gw
         JOIN bt_v2 AS v ON v.player_id = a.player_id AND v.gw = a.gw
         WHERE (a.minutes > 0 OR x.start_prob > 0)
@@ -136,6 +147,7 @@ def _score_one_gw(conn, season: str, from_gw: int, with_fpl: bool = False) -> di
 def _drop_temp(conn):
     conn.executescript("""
         DROP TABLE IF EXISTS temp.bt_actual;
+        DROP TABLE IF EXISTS temp.bt_fx;
         DROP TABLE IF EXISTS temp.bt_xp;
         DROP TABLE IF EXISTS temp.bt_v2;
         DROP TABLE IF EXISTS temp.bt_scored;
@@ -263,7 +275,7 @@ def _three_gw(conn, season: str, from_gw: int) -> dict:
                t.xp3 AS model, v.xp3 AS v2,
                t.fixtures3 * (SELECT AVG(p.actual) FROM (
                     SELECT actual FROM bt_actual
-                    WHERE player_id = a.player_id AND gw < a.gw
+                    WHERE player_id = a.player_id AND gw < a.gw AND actual IS NOT NULL
                     ORDER BY gw DESC LIMIT 5) AS p) AS last5_avg
         FROM bt_actual AS a
         JOIN bt_xp AS x ON x.player_id = a.player_id AND x.gw = a.gw

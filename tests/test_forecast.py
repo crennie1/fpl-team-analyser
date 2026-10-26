@@ -113,10 +113,12 @@ def test_player_without_v2_falls_back_to_model(db_with_sample):
 def test_xp_next_never_equals_ep_next_by_construction(db_with_sample):
     conn = db_with_sample
     conn.execute("INSERT INTO meta (key, value) VALUES ('forecast_source', 'fpl_ep')")
+    before = _next(conn)
     conn.execute("UPDATE player_snapshot SET ep_next = 99 WHERE player_id = 1")
     r = _next(conn)
+    assert r["xp_next"] == pytest.approx(before["xp_next"])
+    assert r["xp_next3"] == pytest.approx(before["xp_next3"])
     assert r["xp_next"] != pytest.approx(99)
-    assert r["xp_next3"] != pytest.approx(99 * 3)
 
 
 def _last5(conn, pid=1):

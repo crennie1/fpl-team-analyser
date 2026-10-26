@@ -30,6 +30,24 @@ def test_backtest_same_rows_for_all_methods(db_with_sample):
     assert len(ns) == 1 and ns.pop() == 7          # 3 players x 2 gws + player 4 (no ep_pre)
 
 
+def test_one_gw_last5_avg_is_scaled_by_fixtures(db_with_sample):
+    """In a double gameweek the 1-GW baseline is the last-5 average x 2, like the site's."""
+    conn = db_with_sample
+    _sample_rows(conn, False)
+    r0 = backtest.run(conn, "2026-27", from_gw=6)["last5_avg"]
+    totals = [t for (t,) in conn.execute(
+        "SELECT SUM(total_points) FROM player_gw WHERE season='2026-27' AND player_id=1 "
+        "AND gw < 7 GROUP BY gw ORDER BY gw DESC LIMIT 5")]
+    avg = sum(totals) / len(totals)
+    # second fixture for player 1 in gw 7 (9 points in each): actual 18
+    conn.execute("INSERT INTO player_gw VALUES ('2026-27',7,1,2,90,9,0,3,3,3.0)")
+    conn.commit()
+    r1 = backtest.run(conn, "2026-27", from_gw=6)["last5_avg"]
+    assert r1["n"] == r0["n"]
+    assert r1["mae"] * r1["n"] - r0["mae"] * r0["n"] == pytest.approx(
+        abs(2 * avg - 18) - abs(avg - 9))
+
+
 def test_methods_are_ours_only():
     assert backtest.METHODS == ("model", "last5_avg", "v2")
 
