@@ -70,15 +70,15 @@ Season 2026-27, one gameweek ahead. FPL's prediction is scored only where our
 collector saved it before that gameweek's deadline, so it could not have seen the result.
 Every method is scored on the same rows.
 
-Gameweeks (2): 8-9. Players: 431. Rows: 853 per method.
+Gameweeks (3): 8-10. Players: 437. Rows: 1278 per method.
 Gameweeks left out, with no FPL prediction saved before the deadline: 1-7.
 
 | Method | MAE | Rows |
 |---|---|---|
-| SQL model v1 (v_xp) | 1.803 | 853 |
-| Forecast v2 (v_xp2) | 1.743 | 853 |
-| Last-5 average | 1.857 | 853 |
-| FPL's prediction, saved before kick-off | 1.829 | 853 |
+| SQL model v1 (v_xp) | 1.805 | 1278 |
+| Forecast v2 (v_xp2) | 1.744 | 1278 |
+| Last-5 average | 1.843 | 1278 |
+| FPL's prediction, saved before kick-off | 1.799 | 1278 |
 
 Verdict: too early to call. This is a small, growing sample: under 5 gameweeks, so read it as an early sign, not proof.
 
